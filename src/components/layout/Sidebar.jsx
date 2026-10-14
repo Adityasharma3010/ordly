@@ -5,6 +5,7 @@ import {
   ChevronsRight,
   Clock,
   Layers,
+  List,
   Plus,
   Star,
   Users,
@@ -16,6 +17,7 @@ import { getStats, listsForView, VIEWS } from "../../utils/listStats";
 
 const NAV = [
   { key: "all", icon: Layers },
+  { key: "myLists", icon: List },
   { key: "favorites", icon: Star },
   { key: "recent", icon: Clock },
   { key: "shared", icon: Users },
@@ -38,6 +40,7 @@ export function Sidebar({
   const open = activeLists.reduce((n, l) => n + getStats(l.items).remaining, 0);
   const counts = {
     all: activeLists.length,
+    myLists: activeLists.filter((l) => l.role === "owner").length,
     favorites: activeLists.filter((l) => l.favorite).length,
     shared: activeLists.filter((l) => l.role !== "owner").length,
     archived: lists.filter((l) => l.archived).length,
