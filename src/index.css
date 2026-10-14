@@ -15,7 +15,8 @@
   --c-on-accent: #17130a;
   --c-danger: #c2412f;
   --c-ok: #22845f;
-  --shadow-pop: 0 12px 40px -12px rgb(20 24 40 / 0.28), 0 2px 6px rgb(20 24 40 / 0.08);
+  --shadow-pop:
+    0 12px 40px -12px rgb(20 24 40 / 0.28), 0 2px 6px rgb(20 24 40 / 0.08);
   color-scheme: light;
 }
 .dark {
@@ -46,12 +47,17 @@
   --color-on-accent: var(--c-on-accent);
   --color-danger: var(--c-danger);
   --color-ok: var(--c-ok);
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
   --shadow-pop: var(--shadow-pop);
 }
 
-html, body, #root { height: 100%; }
+html,
+body,
+#root {
+  height: 100%;
+}
 body {
   background: var(--c-bg);
   color: var(--c-fg);
@@ -69,26 +75,53 @@ body {
   outline-offset: 2px;
   border-radius: 6px;
 }
-input:focus-visible, textarea:focus-visible { outline-offset: 0; }
+input:focus-visible,
+textarea:focus-visible {
+  outline-offset: 0;
+}
 
-::selection { background: color-mix(in srgb, var(--c-accent) 40%, transparent); }
+::selection {
+  background: color-mix(in srgb, var(--c-accent) 40%, transparent);
+}
 
-.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line-strong) transparent; }
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-line-strong) transparent;
+}
 
 /* Skeleton shimmer; disabled automatically under reduced motion. */
-@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
 .skeleton {
-  background: linear-gradient(90deg, var(--c-raised) 25%, color-mix(in srgb, var(--c-line) 70%, var(--c-raised)) 50%, var(--c-raised) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--c-raised) 25%,
+    color-mix(in srgb, var(--c-line) 70%, var(--c-raised)) 50%,
+    var(--c-raised) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
   border-radius: 8px;
 }
 
 /* Hand-drawn tick stroke used by the checkbox. */
-.tick-path { stroke-dasharray: 22; }
+.tick-path {
+  stroke-dasharray: 22;
+}
+
+/* Sign-in preview card: a row "completes" when GSAP adds .is-done */
+.preview-row.is-done .preview-text {
+  text-decoration: line-through;
+  color: var(--c-faint);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
