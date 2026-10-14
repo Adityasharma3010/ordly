@@ -76,7 +76,7 @@ create unique index list_shares_one_active_per_permission
 -- ---------- Triggers -------------------------------------------------
 
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = '' as $$
 begin
   new.updated_at = now();
   return new;
@@ -146,6 +146,15 @@ returns text language sql stable security definer set search_path = public as $$
   end
 $$;
 
+-- Membership check used by the lists SELECT policy. It deliberately looks at list_members
+-- (a different table), never at `lists` itself: a policy that re-reads the row being inserted
+-- through a function cannot see it yet, which made INSERT ... ON CONFLICT fail with
+-- "new row violates row-level security policy".
+create or replace function public.is_list_member(lid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.list_members where list_id = lid and user_id = auth.uid())
+$$;
+
 -- ---------- Row Level Security ---------------------------------------
 
 alter table public.profiles     enable row level security;
@@ -167,7 +176,7 @@ create policy "profiles_update_own" on public.profiles for update to authenticat
 
 -- lists: owners and members can read; only owners can change list details.
 create policy "lists_select" on public.lists for select to authenticated
-  using (public.list_access(id) is not null);
+  using (owner_id = auth.uid() or public.is_list_member(id));
 create policy "lists_insert" on public.lists for insert to authenticated
   with check (owner_id = auth.uid());
 create policy "lists_update" on public.lists for update to authenticated
@@ -285,14 +294,25 @@ begin
      order by m.created_at;
 end $$;
 
-revoke all on function public.get_shared_list(text)     from public;
-revoke all on function public.redeem_share(text)        from public;
-revoke all on function public.list_collaborators(uuid)  from public;
-revoke all on function public.list_access(uuid)         from public;
-grant execute on function public.get_shared_list(text)    to anon, authenticated;
-grant execute on function public.redeem_share(text)       to authenticated;
-grant execute on function public.list_collaborators(uuid) to authenticated;
-grant execute on function public.list_access(uuid)        to authenticated;
+-- ---------- Function permissions -------------------------------------
+-- Supabase grants EXECUTE on new functions to anon and authenticated by default, and
+-- `revoke ... from public` does not remove those explicit grants, so name the roles.
+-- Trigger functions never need to be callable through the API.
+revoke execute on function public.handle_new_user()      from public, anon, authenticated;
+revoke execute on function public.touch_list()           from public, anon, authenticated;
+revoke execute on function public.sync_share_members()   from public, anon, authenticated;
+-- Only signed-in users need these (RLS policies and the app call them).
+revoke execute on function public.list_access(uuid)        from public, anon;
+revoke execute on function public.is_list_member(uuid)     from public, anon;
+revoke execute on function public.list_collaborators(uuid) from public, anon;
+revoke execute on function public.redeem_share(text)       from public, anon;
+-- get_shared_list is intentionally callable without signing in (anonymous view links).
+revoke execute on function public.get_shared_list(text) from public;
+grant  execute on function public.get_shared_list(text) to anon, authenticated;
+grant  execute on function public.list_access(uuid)        to authenticated;
+grant  execute on function public.is_list_member(uuid)     to authenticated;
+grant  execute on function public.list_collaborators(uuid) to authenticated;
+grant  execute on function public.redeem_share(text)       to authenticated;
 
 -- ---------- Realtime (live updates for collaborators) ----------------
 alter publication supabase_realtime add table public.lists, public.list_items, public.list_members;
@@ -301,5 +321,5 @@ alter publication supabase_realtime add table public.lists, public.list_items, p
 -- drop table if exists public.list_members, public.list_shares, public.list_items,
 --   public.lists, public.profiles cascade;
 -- drop function if exists public.get_shared_list(text), public.redeem_share(text),
---   public.list_collaborators(uuid), public.list_access(uuid), public.sync_share_members(),
+--   public.list_collaborators(uuid), public.list_access(uuid), public.is_list_member(uuid), public.sync_share_members(),
 --   public.touch_list(), public.set_updated_at(), public.handle_new_user() cascade;

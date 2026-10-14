@@ -1,6 +1,25 @@
+# dependencies
 node_modules
+
+# build output
 dist
+
+# environment files: keep real keys out of GitHub
 .env
 .env.*
 !.env.example
 *.local
+
+# Vercel CLI
+.vercel
+
+# logs
+*.log
+npm-debug.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
