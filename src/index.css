@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --c-bg: #f1f2f4;
+  --c-surface: #ffffff;
+  --c-raised: #f6f7f9;
+  --c-line: #dcdfe5;
+  --c-line-strong: #c3c8d2;
+  --c-fg: #14161b;
+  --c-muted: #596072;
+  --c-faint: #8a91a1;
+  --c-accent: #f0b24b;
+  --c-on-accent: #17130a;
+  --c-danger: #c2412f;
+  --c-ok: #22845f;
+  --shadow-pop: 0 12px 40px -12px rgb(20 24 40 / 0.28), 0 2px 6px rgb(20 24 40 / 0.08);
+  color-scheme: light;
+}
+.dark {
+  --c-bg: #0e1116;
+  --c-surface: #151922;
+  --c-raised: #1b212c;
+  --c-line: #262d3a;
+  --c-line-strong: #38415283;
+  --c-fg: #e9e7e2;
+  --c-muted: #9097a7;
+  --c-faint: #6a7183;
+  --c-danger: #f1806e;
+  --c-ok: #6fcfa3;
+  --shadow-pop: 0 18px 50px -12px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-accent: var(--c-accent);
+  --color-on-accent: var(--c-on-accent);
+  --color-danger: var(--c-danger);
+  --color-ok: var(--c-ok);
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+  --shadow-pop: var(--shadow-pop);
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* One consistent, visible keyboard focus ring. */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+input:focus-visible, textarea:focus-visible { outline-offset: 0; }
+
+::selection { background: color-mix(in srgb, var(--c-accent) 40%, transparent); }
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--c-line-strong) transparent; }
+
+/* Skeleton shimmer; disabled automatically under reduced motion. */
+@keyframes shimmer { to { background-position: -200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--c-raised) 25%, color-mix(in srgb, var(--c-line) 70%, var(--c-raised)) 50%, var(--c-raised) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 8px;
+}
+
+/* Hand-drawn tick stroke used by the checkbox. */
+.tick-path { stroke-dasharray: 22; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
