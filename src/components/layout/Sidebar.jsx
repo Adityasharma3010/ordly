@@ -130,7 +130,9 @@ export function Sidebar({
             <p className="px-2.5 py-2 text-[13px] text-faint">
               {view === "all"
                 ? "No lists yet."
-                : `Nothing in ${VIEWS[view].toLowerCase()}.`}
+                : view === "myLists"
+                  ? "You haven’t created any lists yet."
+                  : `Nothing in ${VIEWS[view].toLowerCase()}.`}
             </p>
           )
         ) : (

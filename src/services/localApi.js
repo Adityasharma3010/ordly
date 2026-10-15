@@ -1,75 +1,144 @@
 // DEVELOPMENT MODE ONLY. Used when Supabase env vars are missing.
 // Data lives in this browser's localStorage: no accounts, no cloud sync, no
 // sharing. The UI states this clearly rather than pretending otherwise.
-const KEY = 'ordly.local.v1'
-const LOCAL_USER = { id: 'local-user', email: 'this-device', name: 'You' }
+const KEY = "ordly.local.v1";
+const LOCAL_USER = { id: "local-user", email: "this-device", name: "You" };
 
 const read = () => {
-  try { return JSON.parse(localStorage.getItem(KEY)) || { lists: [] } } catch { return { lists: [] } }
-}
-const write = (db) => localStorage.setItem(KEY, JSON.stringify(db))
-const mutate = (fn) => { const db = read(); fn(db); write(db) }
-const unsupported = () => { throw new Error('Sharing needs a Supabase backend. See the README for setup.') }
-const bump = (list) => { list.updated_at = new Date().toISOString() }
+  try {
+    return JSON.parse(localStorage.getItem(KEY)) || { lists: [] };
+  } catch {
+    return { lists: [] };
+  }
+};
+const write = (db) => localStorage.setItem(KEY, JSON.stringify(db));
+const mutate = (fn) => {
+  const db = read();
+  fn(db);
+  write(db);
+};
+const unsupported = () => {
+  throw new Error(
+    "Sharing needs a Supabase backend. See the README for setup.",
+  );
+};
+const bump = (list) => {
+  list.updated_at = new Date().toISOString();
+};
 
 export const localApi = {
   capabilities: { auth: false, sharing: false, realtime: false },
 
-  async getUser() { return LOCAL_USER },
-  onAuthChange() { return () => {} },
-  async signUp() { unsupported() },
-  async signIn() { unsupported() },
+  async getUser() {
+    return LOCAL_USER;
+  },
+  onAuthChange() {
+    return () => {};
+  },
+  async signUp() {
+    unsupported();
+  },
+  async signIn() {
+    unsupported();
+  },
   async signOut() {},
-  async sendPasswordReset() { unsupported() },
-  async updatePassword() { unsupported() },
+  async sendPasswordReset() {
+    unsupported();
+  },
+  async updatePassword() {
+    unsupported();
+  },
   async updateProfile() {},
 
   async fetchWorkspace() {
-    return read().lists.map((l) => ({ ...l, role: 'owner' }))
+    return read().lists.map((l) => ({ ...l, role: "owner" }));
   },
   async createList(list) {
-    mutate((db) => { if (!db.lists.some((l) => l.id === list.id)) db.lists.unshift({ ...list, items: list.items || [] }) })
+    mutate((db) => {
+      if (!db.lists.some((l) => l.id === list.id))
+        db.lists.unshift({ ...list, items: list.items || [] });
+    });
   },
   async updateList(id, patch) {
-    mutate((db) => { const l = db.lists.find((x) => x.id === id); if (l) Object.assign(l, patch, { updated_at: new Date().toISOString() }) })
+    mutate((db) => {
+      const l = db.lists.find((x) => x.id === id);
+      if (l) Object.assign(l, patch, { updated_at: new Date().toISOString() });
+    });
   },
   async deleteList(id) {
-    mutate((db) => { db.lists = db.lists.filter((l) => l.id !== id) })
+    mutate((db) => {
+      db.lists = db.lists.filter((l) => l.id !== id);
+    });
   },
   async insertItems(items) {
     mutate((db) => {
       for (const it of items) {
-        const l = db.lists.find((x) => x.id === it.list_id)
-        if (l && !l.items.some((i) => i.id === it.id)) { l.items.push(it); bump(l) }
+        const l = db.lists.find((x) => x.id === it.list_id);
+        if (l && !l.items.some((i) => i.id === it.id)) {
+          l.items.push(it);
+          bump(l);
+        }
       }
-    })
+    });
   },
   async updateItem(id, patch) {
     mutate((db) => {
       for (const l of db.lists) {
-        const it = l.items.find((i) => i.id === id)
-        if (it) { Object.assign(it, patch, { updated_at: new Date().toISOString() }); bump(l) }
+        const it = l.items.find((i) => i.id === id);
+        if (it) {
+          Object.assign(it, patch, { updated_at: new Date().toISOString() });
+          bump(l);
+        }
       }
-    })
+    });
   },
   async updateItems(ids, patch) {
-    const set = new Set(ids)
+    const set = new Set(ids);
     mutate((db) => {
-      for (const l of db.lists) for (const it of l.items) if (set.has(it.id)) { Object.assign(it, patch, { updated_at: new Date().toISOString() }); bump(l) }
-    })
+      for (const l of db.lists)
+        for (const it of l.items)
+          if (set.has(it.id)) {
+            Object.assign(it, patch, { updated_at: new Date().toISOString() });
+            bump(l);
+          }
+    });
   },
   async deleteItems(ids) {
-    const set = new Set(ids)
-    mutate((db) => { for (const l of db.lists) { const n = l.items.length; l.items = l.items.filter((i) => !set.has(i.id)); if (n !== l.items.length) bump(l) } })
+    const set = new Set(ids);
+    mutate((db) => {
+      for (const l of db.lists) {
+        const n = l.items.length;
+        l.items = l.items.filter((i) => !set.has(i.id));
+        if (n !== l.items.length) bump(l);
+      }
+    });
   },
-  subscribe() { return () => {} },
+  subscribe() {
+    return () => {};
+  },
 
-  async listShares() { unsupported() },
-  async createShare() { unsupported() },
-  async setSharePermission() { unsupported() },
-  async revokeShare() { unsupported() },
-  async getSharedList() { return null },
-  async redeemShare() { unsupported() },
-  async collaborators() { return [] },
-  async removeMember() { unsupported() },
-}
+  async listShares() {
+    unsupported();
+  },
+  async createShare() {
+    unsupported();
+  },
+  async setSharePermission() {
+    unsupported();
+  },
+  async revokeShare() {
+    unsupported();
+  },
+  async getSharedList() {
+    return null;
+  },
+  async redeemShare() {
+    unsupported();
+  },
+  async collaborators() {
+    return [];
+  },
+  async removeMember() {
+    unsupported();
+  },
+};

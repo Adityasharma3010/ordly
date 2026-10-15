@@ -1,1 +1,3 @@
-export const Skeleton = ({ className = '' }) => <div className={`skeleton ${className}`} aria-hidden />
+export const Skeleton = ({ className = "" }) => (
+  <div className={`skeleton ${className}`} aria-hidden />
+);
