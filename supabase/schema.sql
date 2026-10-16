@@ -36,7 +36,13 @@ create table public.list_items (
   completed     boolean not null default false,
   position      double precision not null,
   created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now()
+  updated_at    timestamptz not null default now(),
+  -- Sub-items: the item this one sits under (null = top level). The composite key makes
+  -- the parent live in the SAME list; deleting a parent deletes everything under it.
+  parent_id     uuid,
+  constraint list_items_id_list_key unique (id, list_id),
+  constraint list_items_parent_fk foreign key (parent_id, list_id)
+    references public.list_items (id, list_id) on delete cascade
 );
 
 create table public.list_shares (
@@ -84,6 +90,7 @@ create table public.list_invites (
 
 create index lists_owner_idx          on public.lists (owner_id);
 create index list_items_list_pos_idx  on public.list_items (list_id, position);
+create index list_items_parent_idx    on public.list_items (list_id, parent_id);
 create index list_shares_list_idx     on public.list_shares (list_id);
 create index list_members_user_idx    on public.list_members (user_id);
 -- At most one active link per list (its permission can be switched view <-> edit).
@@ -113,6 +120,27 @@ begin
    where id = coalesce(new.list_id, old.list_id);
   return null;
 end $$;
+
+-- Refuse to move an item underneath itself (or one of its own sub-items).
+create or replace function public.check_item_parent()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.parent_id is null then return new; end if;
+  if new.parent_id = new.id or exists (
+    with recursive up as (
+      select id, parent_id from public.list_items where id = new.parent_id
+      union all
+      select i.id, i.parent_id from public.list_items i join up on i.id = up.parent_id
+    )
+    select 1 from up where id = new.id
+  ) then
+    raise exception 'item_cycle' using errcode = '23514';
+  end if;
+  return new;
+end $$;
+
+create trigger list_items_check_parent before update of parent_id on public.list_items
+  for each row execute function public.check_item_parent();
 
 create trigger list_items_touch_list
   after insert or update or delete on public.list_items
@@ -396,6 +424,7 @@ revoke execute on function public.touch_list()           from public, anon, auth
 revoke execute on function public.sync_share_members()   from public, anon, authenticated;
 -- Only used inside other functions.
 revoke execute on function public.share_is_live(uuid)    from public, anon, authenticated;
+revoke execute on function public.check_item_parent()    from public, anon, authenticated;
 -- Only signed-in users need these (RLS policies and the app call them).
 revoke execute on function public.list_access(uuid)        from public, anon;
 revoke execute on function public.is_list_member(uuid)     from public, anon;
@@ -422,4 +451,4 @@ alter publication supabase_realtime add table public.lists, public.list_items, p
 -- drop function if exists public.get_shared_list(text), public.redeem_share(text),
 --   public.claim_invites(), public.set_member_role(uuid, uuid, text), public.share_is_live(uuid),
 --   public.list_collaborators(uuid), public.list_access(uuid), public.is_list_member(uuid), public.sync_share_members(),
---   public.touch_list(), public.set_updated_at(), public.handle_new_user() cascade;
+--   public.touch_list(), public.check_item_parent(), public.set_updated_at(), public.handle_new_user() cascade;

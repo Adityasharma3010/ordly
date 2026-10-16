@@ -4,7 +4,8 @@ import { ArchiveRestore } from "lucide-react";
 import { useWorkspace } from "../../contexts/WorkspaceContext";
 import { useToast } from "../../contexts/ToastContext";
 import { api } from "../../services/api";
-import { getStats, filterAndSortItems } from "../../utils/listStats";
+import { getStats } from "../../utils/listStats";
+import { buildRows } from "../../utils/tree";
 import { usePersistentState } from "../../hooks/usePersistentState";
 import { accentHex } from "../../utils/appearance";
 import { plural } from "../../utils/format";
@@ -32,11 +33,26 @@ export function ListWorkspace({ list }) {
 
   const canEdit = list.role !== "viewer";
   const isOwner = list.role === "owner";
-  const stats = useMemo(() => getStats(list.items), [list.items]);
-  const visible = useMemo(
-    () => filterAndSortItems(list.items, { filter, sort, query }),
-    [list.items, filter, sort, query],
+  // Which items are folded up, remembered per list on this device.
+  const [foldedByList, setFoldedByList] = usePersistentState(
+    "ordly.collapsed",
+    {},
   );
+  const folded = foldedByList[list.id];
+  const stats = useMemo(() => getStats(list.items), [list.items]);
+  const rows = useMemo(
+    () =>
+      buildRows(list.items, { filter, sort, query, collapsed: folded || [] }),
+    [list.items, filter, sort, query, folded],
+  );
+  const setFolded = (id, fold) =>
+    setFoldedByList((all) => {
+      const next = new Set(all[list.id] || []);
+      if (fold) next.add(id);
+      else next.delete(id);
+      return { ...all, [list.id]: [...next] };
+    });
+  const toggleFold = (id) => setFolded(id, !(folded || []).includes(id));
   const dragEnabled = sort === "custom" && filter === "all" && !query.trim();
 
   const archive = () => {
@@ -131,7 +147,7 @@ export function ListWorkspace({ list }) {
       <div className="mt-3">
         {list.items.length === 0 ? (
           <EmptyItems canEdit={canEdit} />
-        ) : visible.length === 0 ? (
+        ) : rows.length === 0 ? (
           <NoMatches
             onReset={() => {
               setFilter("all");
@@ -140,20 +156,31 @@ export function ListWorkspace({ list }) {
           />
         ) : (
           <Checklist
-            items={visible}
+            rows={rows}
             canEdit={canEdit}
             dragEnabled={dragEnabled}
             onPatch={(id, patch, opts) =>
               ws.updateItem(list.id, id, patch, opts)
             }
+            onToggle={(id, completed) => ws.toggleItem(list.id, id, completed)}
             onDelete={(id) => ws.removeItem(list.id, id)}
             onMove={(a, o) => ws.moveItem(list.id, a, o)}
+            onAddChild={(parentId, v) => {
+              setFolded(parentId, false); // show what you just added
+              ws.addItem(list.id, { ...v, parent_id: parentId });
+            }}
+            onIndent={(id) => {
+              const parentId = ws.indentItem(list.id, id);
+              if (parentId) setFolded(parentId, false);
+            }}
+            onOutdent={(id) => ws.outdentItem(list.id, id)}
+            onToggleCollapse={toggleFold}
           />
         )}
         {!dragEnabled &&
           canEdit &&
           list.items.length > 1 &&
-          visible.length > 0 && (
+          rows.length > 0 && (
             <p className="mt-3 px-2 text-xs text-faint">
               Reordering is available with Custom order, “All” filter and no
               search.

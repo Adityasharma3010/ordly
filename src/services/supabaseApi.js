@@ -133,7 +133,7 @@ export const supabaseApi = {
   async insertItems(items) {
     if (!items.length) return;
     const rows = items.map(
-      ({ id, list_id, text, notes, has_checkbox, completed, position }) => ({
+      ({
         id,
         list_id,
         text,
@@ -141,6 +141,17 @@ export const supabaseApi = {
         has_checkbox,
         completed,
         position,
+        parent_id,
+      }) => ({
+        id,
+        list_id,
+        text,
+        notes,
+        has_checkbox,
+        completed,
+        position,
+        // Only sent for sub-items, so top-level items keep saving even before nest-items.sql is run.
+        ...(parent_id ? { parent_id } : {}),
       }),
     );
     // Re-sending the same client-generated id is a no-op, so retries never duplicate.

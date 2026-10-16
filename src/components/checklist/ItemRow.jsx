@@ -4,7 +4,12 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
   CheckSquare,
+  ChevronRight,
+  CornerDownRight,
   GripVertical,
+  IndentDecrease,
+  IndentIncrease,
+  ListPlus,
   MoreHorizontal,
   NotebookPen,
   Pencil,
@@ -15,7 +20,25 @@ import { Checkbox } from "../ui/Checkbox";
 import { Menu } from "../ui/Menu";
 import { IconButton } from "../ui/Button";
 
-export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
+// How far each level of sub-items is pushed in, and where the pushing stops so a very
+// deep branch can't walk off the screen.
+const INDENT_PX = 24;
+const MAX_INDENT_LEVELS = 8;
+
+export function ItemRow({
+  row,
+  nested,
+  canEdit,
+  dragEnabled,
+  onPatch,
+  onToggle,
+  onDelete,
+  onAddChild,
+  onIndent,
+  onOutdent,
+  onToggleCollapse,
+}) {
+  const { item } = row;
   const {
     attributes,
     listeners,
@@ -31,8 +54,11 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
   const [showNotes, setShowNotes] = useState(false);
+  const [addingChild, setAddingChild] = useState(false);
+  const [childText, setChildText] = useState("");
   const inputRef = useRef(null);
   const notesRef = useRef(null);
+  const childRef = useRef(null);
 
   useEffect(() => {
     if (editing) {
@@ -40,6 +66,9 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
       inputRef.current?.select();
     }
   }, [editing]);
+  useEffect(() => {
+    if (addingChild) childRef.current?.focus();
+  }, [addingChild]);
   useEffect(() => {
     if (showNotes && !item.notes) notesRef.current?.focus();
   }, [showNotes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -60,8 +89,16 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
     setDraft(item.text);
   };
 
-  const done = item.has_checkbox && item.completed;
+  const done = item.has_checkbox && row.completed;
   const hasNotes = !!item.notes;
+  const indent = Math.min(row.depth, MAX_INDENT_LEVELS) * INDENT_PX;
+
+  const submitChild = () => {
+    if (!childText.trim()) return;
+    onAddChild({ text: childText, has_checkbox: true });
+    setChildText("");
+    childRef.current?.focus();
+  };
 
   const menuItems = [
     { label: "Edit text", icon: Pencil, onClick: startEdit },
@@ -75,9 +112,29 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
       icon: item.has_checkbox ? Square : CheckSquare,
       onClick: () => onPatch({ has_checkbox: !item.has_checkbox }),
     },
+    {
+      label: "Add sub-item",
+      icon: ListPlus,
+      onClick: () => setAddingChild(true),
+    },
+    row.canIndent && {
+      label: "Indent (make sub-item of the one above)",
+      icon: IndentIncrease,
+      onClick: onIndent,
+    },
+    row.canOutdent && {
+      label: "Outdent (move up a level)",
+      icon: IndentDecrease,
+      onClick: onOutdent,
+    },
     { divider: true },
-    { label: "Delete item", icon: Trash2, danger: true, onClick: onDelete },
-  ];
+    {
+      label: row.hasChildren ? "Delete item and sub-items" : "Delete item",
+      icon: Trash2,
+      danger: true,
+      onClick: onDelete,
+    },
+  ].filter(Boolean);
 
   return (
     <motion.li
@@ -99,6 +156,7 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
     >
       <div
         data-anim="item"
+        style={{ marginLeft: indent }}
         className={`group flex items-start gap-2 rounded-xl border px-2 py-2 transition-colors ${
           isDragging
             ? "border-accent bg-surface shadow-pop"
@@ -127,13 +185,32 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
           </button>
         )}
 
+        {nested && (
+          <div className="mt-px grid h-6 w-5 shrink-0 place-items-center">
+            {row.canCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                aria-expanded={!row.collapsed}
+                aria-label={`${row.collapsed ? "Expand" : "Collapse"} “${item.text}”`}
+                className="grid size-5 cursor-pointer place-items-center rounded text-faint transition-colors hover:text-fg"
+              >
+                <ChevronRight
+                  className={`size-4 transition-transform ${row.collapsed ? "" : "rotate-90"}`}
+                  aria-hidden
+                />
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-px grid h-6 shrink-0 place-items-center">
           {item.has_checkbox ? (
             <Checkbox
-              checked={item.completed}
+              checked={row.completed}
               disabled={!canEdit}
-              onChange={(completed) => onPatch({ completed })}
-              label={`${item.completed ? "Mark incomplete" : "Mark complete"}: ${item.text}`}
+              onChange={onToggle}
+              label={`${row.completed ? "Mark incomplete" : "Mark complete"}: ${item.text}`}
             />
           ) : (
             <span className="size-1.5 rounded-full bg-faint" aria-hidden />
@@ -157,6 +234,17 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
                   e.stopPropagation();
                   cancel();
                 }
+                // Tab / Shift+Tab indent and outdent, like in most outliners.
+                if (e.key === "Tab") {
+                  const go = e.shiftKey
+                    ? row.canOutdent && onOutdent
+                    : row.canIndent && onIndent;
+                  if (go) {
+                    e.preventDefault();
+                    commit();
+                    go();
+                  }
+                }
               }}
               aria-label="Edit item text"
               className="w-full rounded-md border border-accent/60 bg-raised px-2 py-0.5 text-[15px] focus:outline-none"
@@ -171,6 +259,19 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
               } ${item.has_checkbox ? "" : "text-muted"}`}
             >
               {item.text}
+              {row.progress && (
+                <span
+                  className="ml-2 align-middle text-xs font-normal text-faint no-underline tabular-nums"
+                  title={`${row.progress.done} of ${row.progress.total} done`}
+                >
+                  {row.progress.done}/{row.progress.total}
+                  <span className="sr-only">
+                    {" "}
+                    ({row.progress.done} of {row.progress.total} tasks inside
+                    are done)
+                  </span>
+                </span>
+              )}
               {done && <span className="sr-only"> (completed)</span>}
             </p>
           )}
@@ -232,6 +333,52 @@ export function ItemRow({ item, canEdit, dragEnabled, onPatch, onDelete }) {
           </div>
         )}
       </div>
+
+      {addingChild && canEdit && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitChild();
+          }}
+          style={{
+            marginLeft:
+              Math.min(row.depth + 1, MAX_INDENT_LEVELS) * INDENT_PX + 32,
+          }}
+          className="mt-1 mb-1 flex items-center gap-2 rounded-xl border border-line bg-surface p-1 pl-3 focus-within:border-accent/70"
+        >
+          <CornerDownRight
+            className="size-3.5 shrink-0 text-faint"
+            aria-hidden
+          />
+          <input
+            ref={childRef}
+            value={childText}
+            onChange={(e) => setChildText(e.target.value)}
+            maxLength={2000}
+            autoComplete="off"
+            aria-label={`New sub-item under “${item.text}”`}
+            placeholder="Add a sub-item and press Enter"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setChildText("");
+                setAddingChild(false);
+              }
+            }}
+            onBlur={() => {
+              if (!childText.trim()) setAddingChild(false);
+            }}
+            className="min-w-0 flex-1 bg-transparent py-1 text-sm placeholder:text-faint focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!childText.trim()}
+            className="h-7 cursor-pointer rounded-lg bg-accent px-2.5 text-xs font-medium text-on-accent transition active:scale-95 disabled:cursor-default disabled:opacity-35"
+          >
+            Add
+          </button>
+        </form>
+      )}
     </motion.li>
   );
 }

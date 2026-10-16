@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import {
   DndContext,
@@ -16,15 +16,22 @@ import {
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { ItemRow } from "./ItemRow";
 
+// `rows` come from buildRows(): each has the item plus its depth, progress and so on.
 export function Checklist({
-  items,
+  rows,
   canEdit,
   dragEnabled,
   onPatch,
+  onToggle,
   onDelete,
   onMove,
+  onAddChild,
+  onIndent,
+  onOutdent,
+  onToggleCollapse,
 }) {
   const [announce, setAnnounce] = useState("");
+  const [dragId, setDragId] = useState(null);
   const sensors = useSensors(
     // Handle has touch-action:none, so a short drag works on touch screens too.
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -33,15 +40,34 @@ export function Checklist({
     }),
   );
 
+  // While an item is being dragged, what is under it folds away so the whole branch
+  // moves as one. (Rows are in tree order, so parents always come before children.)
+  const shown = useMemo(() => {
+    if (!dragId) return rows;
+    const hidden = new Set();
+    return rows.filter((r) => {
+      const p = r.item.parent_id ?? null;
+      if (p !== null && (p === dragId || hidden.has(p))) {
+        hidden.add(r.item.id);
+        return false;
+      }
+      return true;
+    });
+  }, [rows, dragId]);
+
+  // Any nesting in the list reserves a little room for the fold arrows.
+  const nested = useMemo(() => rows.some((r) => r.hasChildren), [rows]);
+
   const onDragEnd = useCallback(
     ({ active, over }) => {
+      setDragId(null);
       if (over && active.id !== over.id) {
         onMove(active.id, over.id);
-        const title = items.find((i) => i.id === active.id)?.text;
+        const title = rows.find((r) => r.item.id === active.id)?.item.text;
         setAnnounce(`Moved “${title}”`);
       }
     },
-    [onMove, items],
+    [onMove, rows],
   );
 
   return (
@@ -49,22 +75,30 @@ export function Checklist({
       sensors={sensors}
       collisionDetection={closestCenter}
       modifiers={[restrictToVerticalAxis]}
+      onDragStart={({ active }) => setDragId(active.id)}
+      onDragCancel={() => setDragId(null)}
       onDragEnd={onDragEnd}
     >
       <SortableContext
-        items={items.map((i) => i.id)}
+        items={shown.map((r) => r.item.id)}
         strategy={verticalListSortingStrategy}
       >
         <ul className="flex flex-col gap-0.5" aria-label="Checklist items">
           <AnimatePresence initial={false}>
-            {items.map((item) => (
+            {shown.map((row) => (
               <ItemRow
-                key={item.id}
-                item={item}
+                key={row.item.id}
+                row={row}
+                nested={nested}
                 canEdit={canEdit}
                 dragEnabled={dragEnabled && canEdit}
-                onPatch={(patch, opts) => onPatch(item.id, patch, opts)}
-                onDelete={() => onDelete(item.id)}
+                onPatch={(patch, opts) => onPatch(row.item.id, patch, opts)}
+                onToggle={(completed) => onToggle(row.item.id, completed)}
+                onDelete={() => onDelete(row.item.id)}
+                onAddChild={(v) => onAddChild(row.item.id, v)}
+                onIndent={() => onIndent(row.item.id)}
+                onOutdent={() => onOutdent(row.item.id)}
+                onToggleCollapse={() => onToggleCollapse(row.item.id)}
               />
             ))}
           </AnimatePresence>

@@ -11,13 +11,15 @@ import { api } from "../services/api";
 import { useAuth } from "./AuthContext";
 import { useSave } from "./SaveContext";
 import { useToast } from "./ToastContext";
-import { nowIso, uid } from "../utils/format";
+import { nowIso, plural, uid } from "../utils/format";
 import {
   positionAtEnd,
+  positionBetween,
   positionForMovedItem,
   sortByPosition,
   POSITION_STEP,
 } from "../utils/position";
+import { computeRollup, siblingsOf, subtreeIds } from "../utils/tree";
 
 const WorkspaceContext = createContext(null);
 
@@ -267,10 +269,13 @@ export function WorkspaceProvider({ children }) {
         role: "owner",
         items: [],
       };
-      copy.items = sortByPosition(src.items).map((i) => ({
+      const sorted = sortByPosition(src.items);
+      const newId = new Map(sorted.map((i) => [i.id, uid()]));
+      copy.items = sorted.map((i) => ({
         ...i,
-        id: uid(),
+        id: newId.get(i.id),
         list_id: copy.id,
+        parent_id: i.parent_id ? (newId.get(i.parent_id) ?? null) : null,
         completed: false,
         created_at: now,
         updated_at: now,
@@ -293,10 +298,11 @@ export function WorkspaceProvider({ children }) {
 
   // ---------- Items ----------
   const addItem = useCallback(
-    (listId, { text, has_checkbox = true }) => {
+    (listId, { text, has_checkbox = true, parent_id = null }) => {
       const list = getList(listId);
       const clean = text.trim();
       if (!list || !clean) return null;
+      if (parent_id && !list.items.some((i) => i.id === parent_id)) return null;
       const now = nowIso();
       const item = {
         id: uid(),
@@ -305,7 +311,8 @@ export function WorkspaceProvider({ children }) {
         notes: "",
         has_checkbox,
         completed: false,
-        position: positionAtEnd(list.items),
+        position: positionAtEnd(siblingsOf(list.items, parent_id)),
+        parent_id,
         created_at: now,
         updated_at: now,
       };
@@ -328,22 +335,30 @@ export function WorkspaceProvider({ children }) {
 
   const removeItem = useCallback(
     (listId, itemId) => {
-      const item = getList(listId)?.items.find((i) => i.id === itemId);
-      if (!item) return;
-      const pending = timers.current.get(`item:${itemId}`);
-      if (pending) {
-        clearTimeout(pending.t);
-        timers.current.delete(`item:${itemId}`);
+      const list = getList(listId);
+      if (!list?.items.some((i) => i.id === itemId)) return;
+      // Deleting an item takes everything under it too.
+      const ids = new Set(subtreeIds(list.items, itemId));
+      const gone = list.items.filter((i) => ids.has(i.id));
+      for (const id of ids) {
+        const pending = timers.current.get(`item:${id}`);
+        if (pending) {
+          clearTimeout(pending.t);
+          timers.current.delete(`item:${id}`);
+        }
       }
-      dispatch({ type: "removeItems", listId, ids: [itemId] });
-      persist(() => api.deleteItems([itemId]));
+      dispatch({ type: "removeItems", listId, ids: [...ids] });
+      persist(() => api.deleteItems([...ids]));
       toast({
-        message: "Item deleted",
+        message:
+          gone.length > 1
+            ? `Item and ${plural(gone.length - 1, "sub-item")} deleted`
+            : "Item deleted",
         action: {
           label: "Undo",
           onClick: () => {
-            dispatch({ type: "addItems", listId, items: [item] });
-            persist(() => api.insertItems([item]));
+            dispatch({ type: "addItems", listId, items: gone });
+            persist(() => api.insertItems(gone));
           },
         },
       });
@@ -351,49 +366,131 @@ export function WorkspaceProvider({ children }) {
     [dispatch, getList, persist, toast],
   );
 
+  // Give a group of siblings fresh, evenly spaced positions (gaps can shrink after many
+  // moves). `extra` lets one item change parent in the same step.
+  const renumber = useCallback(
+    (listId, ordered, extra = {}) => {
+      ordered.forEach((i, idx) => {
+        const patch = { position: (idx + 1) * POSITION_STEP, ...extra[i.id] };
+        dispatch({ type: "patchItem", listId, itemId: i.id, patch });
+        persist(() => api.updateItem(i.id, patch));
+      });
+    },
+    [dispatch, persist],
+  );
+
+  // Drag-to-reorder happens among siblings. If you drop on a row that is deeper in the
+  // tree, the sibling that contains it is used.
   const moveItem = useCallback(
     (listId, activeId, overId) => {
       const list = getList(listId);
       if (!list || activeId === overId) return;
-      const ordered = sortByPosition(list.items);
+      const byId = new Map(list.items.map((i) => [i.id, i]));
+      const active = byId.get(activeId);
+      if (!active) return;
+      const parentId = active.parent_id ?? null;
+      let target = byId.get(overId);
+      while (target && (target.parent_id ?? null) !== parentId)
+        target = byId.get(target.parent_id);
+      if (!target || target.id === activeId) return;
+
+      const ordered = siblingsOf(list.items, parentId);
       const from = ordered.findIndex((i) => i.id === activeId);
-      const to = ordered.findIndex((i) => i.id === overId);
+      const to = ordered.findIndex((i) => i.id === target.id);
       if (from < 0 || to < 0) return;
       const next = [...ordered];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
 
-      let pos = positionForMovedItem(next, activeId);
+      const pos = positionForMovedItem(next, activeId);
       const before = next[to - 1]?.position;
       const after = next[to + 1]?.position;
-      // Gaps can shrink after many moves; renumber the list when they get too small.
       if (before != null && after != null && Math.abs(after - before) < 1e-6) {
-        const renumbered = next.map((i, idx) => ({
-          id: i.id,
-          position: (idx + 1) * POSITION_STEP,
-        }));
-        renumbered.forEach(({ id, position }) => {
-          dispatch({
-            type: "patchItem",
-            listId,
-            itemId: id,
-            patch: { position },
-          });
-          persist(() => api.updateItem(id, { position }));
-        });
+        renumber(listId, next);
         return;
       }
       if (pos == null) return;
       updateItem(listId, activeId, { position: pos });
     },
-    [dispatch, getList, updateItem, persist],
+    [getList, updateItem, renumber],
+  );
+
+  // Indent: become the last sub-item of the item just above (at the same level).
+  // Returns that item's id so the screen can unfold it, or null if there is nothing above.
+  const indentItem = useCallback(
+    (listId, itemId) => {
+      const list = getList(listId);
+      const item = list?.items.find((i) => i.id === itemId);
+      if (!item) return null;
+      const sibs = siblingsOf(list.items, item.parent_id ?? null);
+      const at = sibs.findIndex((i) => i.id === itemId);
+      if (at < 1) return null;
+      const parent = sibs[at - 1];
+      const position = positionAtEnd(siblingsOf(list.items, parent.id));
+      updateItem(listId, itemId, { parent_id: parent.id, position });
+      return parent.id;
+    },
+    [getList, updateItem],
+  );
+
+  // Outdent: move up one level, landing right after the item it used to sit under.
+  const outdentItem = useCallback(
+    (listId, itemId) => {
+      const list = getList(listId);
+      const item = list?.items.find((i) => i.id === itemId);
+      const parent = list?.items.find((i) => i.id === item?.parent_id);
+      if (!item || !parent) return;
+      const grandId = parent.parent_id ?? null;
+      const sibs = siblingsOf(list.items, grandId);
+      const at = sibs.findIndex((i) => i.id === parent.id);
+      const before = parent.position;
+      const after = sibs[at + 1]?.position ?? null;
+      if (after != null && Math.abs(after - before) < 1e-6) {
+        const next = [...sibs];
+        next.splice(at + 1, 0, item);
+        renumber(listId, next, { [itemId]: { parent_id: grandId } });
+        return;
+      }
+      updateItem(listId, itemId, {
+        parent_id: grandId,
+        position: positionBetween(before, after),
+      });
+    },
+    [getList, updateItem, renumber],
+  );
+
+  // Ticking a task that has sub-tasks ticks (or unticks) all of them; ticking a task
+  // without sub-tasks just toggles it.
+  const toggleItem = useCallback(
+    (listId, itemId, completed) => {
+      const list = getList(listId);
+      if (!list?.items.some((i) => i.id === itemId)) return;
+      if (!computeRollup(list.items).get(itemId)?.total)
+        return updateItem(listId, itemId, { completed });
+      const inBranch = new Set(subtreeIds(list.items, itemId));
+      const ids = list.items
+        .filter(
+          (i) =>
+            inBranch.has(i.id) && i.has_checkbox && i.completed !== completed,
+        )
+        .map((i) => i.id);
+      if (!ids.length) return;
+      dispatch({ type: "patchItems", listId, ids, patch: { completed } });
+      persist(() => api.updateItems(ids, { completed }));
+    },
+    [dispatch, getList, persist, updateItem],
   );
 
   const clearCompleted = useCallback(
     (listId) => {
       const list = getList(listId);
-      const gone =
-        list?.items.filter((i) => i.has_checkbox && i.completed) || [];
+      if (!list) return;
+      const roll = computeRollup(list.items);
+      const goneIds = new Set();
+      for (const i of list.items)
+        if (i.has_checkbox && roll.get(i.id).completed)
+          for (const id of subtreeIds(list.items, i.id)) goneIds.add(id);
+      const gone = list.items.filter((i) => goneIds.has(i.id));
       if (!gone.length) return;
       dispatch({ type: "removeItems", listId, ids: gone.map((i) => i.id) });
       persist(() => api.deleteItems(gone.map((i) => i.id)));
@@ -441,6 +538,9 @@ export function WorkspaceProvider({ children }) {
       updateItem,
       removeItem,
       moveItem,
+      indentItem,
+      outdentItem,
+      toggleItem,
       clearCompleted,
       setAllCompleted,
       flushPending,
@@ -457,6 +557,9 @@ export function WorkspaceProvider({ children }) {
       updateItem,
       removeItem,
       moveItem,
+      indentItem,
+      outdentItem,
+      toggleItem,
       clearCompleted,
       setAllCompleted,
       flushPending,

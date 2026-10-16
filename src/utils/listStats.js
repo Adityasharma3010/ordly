@@ -1,10 +1,11 @@
 import { sortByPosition } from "./position";
+import { buildRows, listProgress } from "./tree";
 
 // Only items that have a checkbox count toward progress. Plain-text items never do.
+// With sub-items, the tasks at the bottom of each branch are what count: a task that has
+// sub-tasks is a roll-up of them, so it is not counted twice.
 export function getStats(items) {
-  const checkable = items.filter((i) => i.has_checkbox);
-  const done = checkable.filter((i) => i.completed).length;
-  const total = checkable.length;
+  const { done, total } = listProgress(items);
   return {
     totalItems: items.length,
     total,
@@ -18,31 +19,9 @@ export function getStats(items) {
 export const FILTERS = ["all", "active", "completed"];
 export const SORTS = ["custom", "created", "status"];
 
-export function filterAndSortItems(
-  items,
-  { filter = "all", sort = "custom", query = "" } = {},
-) {
-  const q = query.trim().toLowerCase();
-  let out = items;
-  if (filter === "active")
-    out = out.filter((i) => i.has_checkbox && !i.completed);
-  if (filter === "completed")
-    out = out.filter((i) => i.has_checkbox && i.completed);
-  if (q)
-    out = out.filter(
-      (i) =>
-        i.text.toLowerCase().includes(q) || i.notes.toLowerCase().includes(q),
-    );
-
-  if (sort === "created")
-    return [...out].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  if (sort === "status") {
-    const rank = (i) => (!i.has_checkbox ? 1 : i.completed ? 2 : 0);
-    return [...out].sort(
-      (a, b) => rank(a) - rank(b) || a.position - b.position,
-    );
-  }
-  return sortByPosition(out);
+// The items in display order (see buildRows for the version with depth and folding).
+export function filterAndSortItems(items, opts = {}) {
+  return buildRows(items, { ...opts, collapsed: [] }).map((r) => r.item);
 }
 
 // Search across every list's title, description and item text.

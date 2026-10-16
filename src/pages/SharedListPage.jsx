@@ -10,6 +10,7 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { Skeleton } from "../components/ui/Skeleton";
 import { ProgressBar } from "../components/checklist/ProgressBar";
 import { getStats } from "../utils/listStats";
+import { buildRows } from "../utils/tree";
 import { accentHex } from "../utils/appearance";
 import { Notice, Splash } from "./NotFound";
 import { timeAgo } from "../utils/format";
@@ -111,6 +112,7 @@ function SharedList({ token }) {
 
   const items = state.data?.items;
   const stats = useMemo(() => getStats(items || []), [items]);
+  const rows = useMemo(() => buildRows(items || []), [items]);
 
   if (!api.capabilities.sharing) {
     return (
@@ -250,18 +252,19 @@ function SharedList({ token }) {
             className="mt-6 space-y-1"
             aria-label="Shared checklist (read-only)"
           >
-            {items.map((i) => (
+            {rows.map(({ item: i, depth, progress, completed }) => (
               <li
                 key={i.id}
+                style={{ marginLeft: Math.min(depth, 8) * 24 }}
                 className="flex items-start gap-3 rounded-xl px-2 py-2"
               >
                 <div className="mt-px grid h-6 shrink-0 place-items-center">
                   {i.has_checkbox ? (
                     <Checkbox
-                      checked={i.completed}
+                      checked={completed}
                       disabled
                       onChange={() => {}}
-                      label={`${i.text}: ${i.completed ? "completed" : "not completed"}`}
+                      label={`${i.text}: ${completed ? "completed" : "not completed"}`}
                     />
                   ) : (
                     <span
@@ -272,9 +275,14 @@ function SharedList({ token }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p
-                    className={`text-[15px] leading-6 break-words ${i.has_checkbox && i.completed ? "text-faint line-through" : i.has_checkbox ? "" : "text-muted"}`}
+                    className={`text-[15px] leading-6 break-words ${i.has_checkbox && completed ? "text-faint line-through" : i.has_checkbox ? "" : "text-muted"}`}
                   >
                     {i.text}
+                    {progress && (
+                      <span className="ml-2 align-middle text-xs text-faint tabular-nums">
+                        {progress.done}/{progress.total}
+                      </span>
+                    )}
                   </p>
                   {i.notes && (
                     <p className="text-[13px] whitespace-pre-wrap text-faint">
