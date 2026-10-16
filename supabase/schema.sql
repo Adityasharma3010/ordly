@@ -52,8 +52,9 @@ create table public.list_shares (
   created_at  timestamptz not null default now()
 );
 
--- People who redeemed a share link while signed in (needed for editing, and
--- for the "Shared with me" view).
+-- People with access to a list besides the owner: those who redeemed the share
+-- link while signed in (share_id is the link they came through) and people the
+-- owner added by hand (share_id is null). Drives editing and "Shared with me".
 create table public.list_members (
   list_id    uuid not null references public.lists (id) on delete cascade,
   user_id    uuid not null references auth.users (id) on delete cascade,
@@ -63,15 +64,31 @@ create table public.list_members (
   primary key (list_id, user_id)
 );
 
+-- "This email may open this list." Claimed by claim_invites() when the person
+-- signs in with that confirmed email. Nothing about other users is looked up,
+-- so owners can't use it to discover who has an account.
+create table public.list_invites (
+  id         uuid primary key default gen_random_uuid(),
+  list_id    uuid not null references public.lists (id) on delete cascade,
+  email      text not null check (
+               email = lower(email)
+               and char_length(email) <= 254
+               and email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
+  role       text not null check (role in ('viewer', 'editor')),
+  invited_by uuid default auth.uid() references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (list_id, email)
+);
+
 -- ---------- Indexes --------------------------------------------------
 
 create index lists_owner_idx          on public.lists (owner_id);
 create index list_items_list_pos_idx  on public.list_items (list_id, position);
 create index list_shares_list_idx     on public.list_shares (list_id);
 create index list_members_user_idx    on public.list_members (user_id);
--- At most one active link per permission level per list.
-create unique index list_shares_one_active_per_permission
-  on public.list_shares (list_id, permission) where revoked_at is null;
+-- At most one active link per list (its permission can be switched view <-> edit).
+create unique index list_shares_one_active_per_list
+  on public.list_shares (list_id) where revoked_at is null;
 
 -- ---------- Triggers -------------------------------------------------
 
@@ -138,11 +155,23 @@ create trigger list_shares_sync_members after update on public.list_shares
 -- Returns 'owner' | 'editor' | 'viewer' | null for the current user.
 -- SECURITY DEFINER avoids infinite recursion between lists <-> list_members policies.
 
+-- A person who joined through a link only has access while that link is live (not
+-- revoked, not expired). People added individually have no link, so they are always live.
+create or replace function public.share_is_live(sid uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select sid is null or exists (
+    select 1 from public.list_shares s
+     where s.id = sid and s.revoked_at is null
+       and (s.expires_at is null or s.expires_at > now())
+  )
+$$;
+
 create or replace function public.list_access(lid uuid)
 returns text language sql stable security definer set search_path = public as $$
   select case
     when exists (select 1 from public.lists where id = lid and owner_id = auth.uid()) then 'owner'
-    else (select role from public.list_members where list_id = lid and user_id = auth.uid())
+    else (select m.role from public.list_members m
+           where m.list_id = lid and m.user_id = auth.uid() and public.share_is_live(m.share_id))
   end
 $$;
 
@@ -152,7 +181,10 @@ $$;
 -- "new row violates row-level security policy".
 create or replace function public.is_list_member(lid uuid)
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.list_members where list_id = lid and user_id = auth.uid())
+  select exists (
+    select 1 from public.list_members m
+     where m.list_id = lid and m.user_id = auth.uid() and public.share_is_live(m.share_id)
+  )
 $$;
 
 -- ---------- Row Level Security ---------------------------------------
@@ -162,6 +194,7 @@ alter table public.lists        enable row level security;
 alter table public.list_items   enable row level security;
 alter table public.list_shares  enable row level security;
 alter table public.list_members enable row level security;
+alter table public.list_invites enable row level security;
 
 revoke all on all tables in schema public from anon;
 
@@ -208,6 +241,11 @@ create policy "members_select" on public.list_members for select to authenticate
 create policy "members_delete" on public.list_members for delete to authenticated
   using (user_id = auth.uid() or public.list_access(list_id) = 'owner');
 
+-- list_invites: owner only, for everything.
+create policy "invites_owner_all" on public.list_invites for all to authenticated
+  using (public.list_access(list_id) = 'owner')
+  with check (public.list_access(list_id) = 'owner');
+
 -- ---------- Sharing functions ----------------------------------------
 
 -- Anonymous-friendly read of a shared list by token. Returns NULL when the
@@ -240,6 +278,10 @@ begin
 end $$;
 
 -- Signed-in users redeem a link to become a viewer/editor of the list.
+-- Opening a link never lowers or re-attaches someone who already has access: an invited
+-- editor opening a view link stays an editor, and an invited person is never tied to the
+-- link, so switching the link off cannot remove them. The one change it can make is
+-- lifting a viewer to editor when the link is an edit link.
 create or replace function public.redeem_share(p_token text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
@@ -266,32 +308,83 @@ begin
 
   new_role := case s.permission when 'edit' then 'editor' else 'viewer' end;
 
-  -- Never downgrade an existing editor.
   insert into public.list_members (list_id, user_id, role, share_id)
   values (s.list_id, uid, new_role, s.id)
   on conflict (list_id, user_id) do update
-    set role = excluded.role, share_id = excluded.share_id
-    where public.list_members.role <> 'editor';
+    set role = excluded.role
+    where public.list_members.role = 'viewer' and excluded.role = 'editor';
 
   return jsonb_build_object(
     'list_id', s.list_id,
     'role', (select role from public.list_members where list_id = s.list_id and user_id = uid));
 end $$;
 
--- Owner-only: who has access to a list, with display names.
+-- Owner-only: who currently has access to a list, with display names. `via_link` is true
+-- for people who came through the share link; people whose link has expired are left out.
 create or replace function public.list_collaborators(p_list_id uuid)
-returns table (user_id uuid, display_name text, role text, created_at timestamptz)
+returns table (user_id uuid, display_name text, role text, via_link boolean, created_at timestamptz)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if public.list_access(p_list_id) is distinct from 'owner' then
     raise exception 'forbidden' using errcode = '42501';
   end if;
   return query
-    select m.user_id, coalesce(p.display_name, ''), m.role, m.created_at
+    select m.user_id, coalesce(p.display_name, ''), m.role, (m.share_id is not null), m.created_at
       from public.list_members m
       left join public.profiles p on p.id = m.user_id
-     where m.list_id = p_list_id
+     where m.list_id = p_list_id and public.share_is_live(m.share_id)
      order by m.created_at;
+end $$;
+
+-- Owner changes a person's role. Also detaches them from the link, so turning the link
+-- off later won't remove someone you set up by hand.
+create or replace function public.set_member_role(p_list_id uuid, p_user_id uuid, p_role text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if public.list_access(p_list_id) is distinct from 'owner' then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  if p_role not in ('viewer', 'editor') then
+    raise exception 'invalid_role' using errcode = '22023';
+  end if;
+  update public.list_members
+     set role = p_role, share_id = null
+   where list_id = p_list_id and user_id = p_user_id;
+end $$;
+
+-- Signed-in users call this on load: any invites for their confirmed email become real
+-- access (individually added, so not tied to the link).
+create or replace function public.claim_invites()
+returns integer language plpgsql security definer set search_path = public, auth as $$
+declare
+  uid uuid := auth.uid();
+  mail text;
+  n integer := 0;
+begin
+  if uid is null then return 0; end if;
+
+  select lower(u.email) into mail
+    from auth.users u
+   where u.id = uid and u.email_confirmed_at is not null;
+  if mail is null then return 0; end if;
+
+  with taken as (
+    delete from public.list_invites where email = mail returning list_id, role
+  ),
+  added as (
+    insert into public.list_members (list_id, user_id, role, share_id)
+    select t.list_id, uid, t.role, null
+      from taken t
+      join public.lists l on l.id = t.list_id
+     where l.owner_id <> uid
+    on conflict (list_id, user_id) do update
+      set role = case when excluded.role = 'editor' then 'editor' else public.list_members.role end,
+          share_id = null
+    returning 1
+  )
+  select count(*) into n from added;
+
+  return n;
 end $$;
 
 -- ---------- Function permissions -------------------------------------
@@ -301,11 +394,15 @@ end $$;
 revoke execute on function public.handle_new_user()      from public, anon, authenticated;
 revoke execute on function public.touch_list()           from public, anon, authenticated;
 revoke execute on function public.sync_share_members()   from public, anon, authenticated;
+-- Only used inside other functions.
+revoke execute on function public.share_is_live(uuid)    from public, anon, authenticated;
 -- Only signed-in users need these (RLS policies and the app call them).
 revoke execute on function public.list_access(uuid)        from public, anon;
 revoke execute on function public.is_list_member(uuid)     from public, anon;
 revoke execute on function public.list_collaborators(uuid) from public, anon;
 revoke execute on function public.redeem_share(text)       from public, anon;
+revoke execute on function public.claim_invites()                   from public, anon;
+revoke execute on function public.set_member_role(uuid, uuid, text) from public, anon;
 -- get_shared_list is intentionally callable without signing in (anonymous view links).
 revoke execute on function public.get_shared_list(text) from public;
 grant  execute on function public.get_shared_list(text) to anon, authenticated;
@@ -313,13 +410,16 @@ grant  execute on function public.list_access(uuid)        to authenticated;
 grant  execute on function public.is_list_member(uuid)     to authenticated;
 grant  execute on function public.list_collaborators(uuid) to authenticated;
 grant  execute on function public.redeem_share(text)       to authenticated;
+grant  execute on function public.claim_invites()                   to authenticated;
+grant  execute on function public.set_member_role(uuid, uuid, text) to authenticated;
 
 -- ---------- Realtime (live updates for collaborators) ----------------
 alter publication supabase_realtime add table public.lists, public.list_items, public.list_members;
 
 -- ---------- To reset during development -----------------------------
--- drop table if exists public.list_members, public.list_shares, public.list_items,
+-- drop table if exists public.list_invites, public.list_members, public.list_shares, public.list_items,
 --   public.lists, public.profiles cascade;
 -- drop function if exists public.get_shared_list(text), public.redeem_share(text),
+--   public.claim_invites(), public.set_member_role(uuid, uuid, text), public.share_is_live(uuid),
 --   public.list_collaborators(uuid), public.list_access(uuid), public.is_list_member(uuid), public.sync_share_members(),
 --   public.touch_list(), public.set_updated_at(), public.handle_new_user() cascade;

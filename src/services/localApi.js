@@ -126,6 +126,9 @@ export const localApi = {
   async setSharePermission() {
     unsupported();
   },
+  async setShareExpiry() {
+    unsupported();
+  },
   async revokeShare() {
     unsupported();
   },
@@ -139,6 +142,18 @@ export const localApi = {
     return [];
   },
   async removeMember() {
+    unsupported();
+  },
+  async setMemberRole() {
+    unsupported();
+  },
+  async invites() {
+    return [];
+  },
+  async inviteByEmail() {
+    unsupported();
+  },
+  async removeInvite() {
     unsupported();
   },
 };

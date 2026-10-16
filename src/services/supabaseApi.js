@@ -17,6 +17,9 @@ const toUser = (u) =>
       }
     : null;
 
+// The user whose email invites were already claimed in this page session.
+let claimedFor = null;
+
 export const supabaseApi = {
   capabilities: { auth: true, sharing: true, realtime: true },
 
@@ -81,6 +84,12 @@ export const supabaseApi = {
 
   // ---------- Lists & items ----------
   async fetchWorkspace(userId) {
+    // Once per sign-in: turn any email invites for this user into real access.
+    // Best-effort: the workspace must still load if this fails.
+    if (claimedFor !== userId) {
+      claimedFor = userId;
+      await supabase.rpc("claim_invites");
+    }
     const [listsRes, membersRes] = await Promise.all([
       supabase
         .from("lists")
@@ -192,10 +201,10 @@ export const supabaseApi = {
     fail(error);
     return data;
   },
-  async createShare(listId, permission) {
+  async createShare(listId, permission, expiresAt = null) {
     const { data, error } = await supabase
       .from("list_shares")
-      .insert({ list_id: listId, permission })
+      .insert({ list_id: listId, permission, expires_at: expiresAt })
       .select()
       .single();
     fail(error);
@@ -205,6 +214,13 @@ export const supabaseApi = {
     const { error } = await supabase
       .from("list_shares")
       .update({ permission })
+      .eq("id", shareId);
+    fail(error);
+  },
+  async setShareExpiry(shareId, expiresAt) {
+    const { error } = await supabase
+      .from("list_shares")
+      .update({ expires_at: expiresAt })
       .eq("id", shareId);
     fail(error);
   },
@@ -242,6 +258,40 @@ export const supabaseApi = {
       .delete()
       .eq("list_id", listId)
       .eq("user_id", userId);
+    fail(error);
+  },
+  async setMemberRole(listId, userId, role) {
+    const { error } = await supabase.rpc("set_member_role", {
+      p_list_id: listId,
+      p_user_id: userId,
+      p_role: role,
+    });
+    fail(error);
+  },
+  async invites(listId) {
+    const { data, error } = await supabase
+      .from("list_invites")
+      .select("id, email, role, created_at")
+      .eq("list_id", listId)
+      .order("created_at");
+    fail(error);
+    return data || [];
+  },
+  // Adding the same email again just changes its role.
+  async inviteByEmail(listId, email, role) {
+    const { error } = await supabase
+      .from("list_invites")
+      .upsert(
+        { list_id: listId, email: email.trim().toLowerCase(), role },
+        { onConflict: "list_id,email" },
+      );
+    fail(error);
+  },
+  async removeInvite(inviteId) {
+    const { error } = await supabase
+      .from("list_invites")
+      .delete()
+      .eq("id", inviteId);
     fail(error);
   },
 };
