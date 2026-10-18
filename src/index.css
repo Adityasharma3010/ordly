@@ -128,3 +128,12 @@ textarea:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* Amber text on the light theme is hard to read, so it gets a darker amber there; the dark
+   theme keeps the bright accent. Used for headings and labels on the landing page. */
+.text-accent-ink {
+  color: var(--c-accent);
+}
+:root[data-theme="light"] .text-accent-ink {
+  color: color-mix(in srgb, var(--c-accent) 52%, #2a1800);
+}
