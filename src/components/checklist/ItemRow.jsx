@@ -160,7 +160,9 @@ export function ItemRow({
         className={`group flex items-start gap-2 rounded-xl border px-2 py-2 transition-colors ${
           isDragging
             ? "border-accent bg-surface shadow-pop"
-            : "border-transparent hover:border-line hover:bg-surface/60"
+            : editing
+              ? "border-accent/60 bg-surface"
+              : "border-transparent hover:border-line hover:bg-surface/60"
         }`}
       >
         {canEdit && (
@@ -247,7 +249,7 @@ export function ItemRow({
                 }
               }}
               aria-label="Edit item text"
-              className="w-full rounded-md border border-accent/60 bg-raised px-2 py-0.5 text-[15px] focus:outline-none"
+              className="w-full bg-transparent py-0.5 text-[15px] focus:outline-none"
             />
           ) : (
             <p

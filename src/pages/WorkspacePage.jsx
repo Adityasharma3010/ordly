@@ -1,21 +1,19 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import {
-  Navigate,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
-import { Plus, Sparkles, TriangleAlert } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { TriangleAlert } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
 import { Sidebar } from "../components/layout/Sidebar";
 import { Header } from "../components/layout/Header";
+import { WorkspaceHome } from "../components/home/WorkspaceHome";
 import { ListWorkspace } from "../components/lists/ListWorkspace";
 import { ListFormModal } from "../components/lists/ListFormModal";
 import { ShareModal } from "../components/sharing/ShareModal";
 import { Button } from "../components/ui/Button";
 import { Skeleton } from "../components/ui/Skeleton";
+import { useAuth } from "../contexts/AuthContext";
 import { useWorkspace } from "../contexts/WorkspaceContext";
-import { listsForView, VIEWS } from "../utils/listStats";
+import { useListActions } from "../hooks/useListActions";
+import { VIEWS } from "../utils/listStats";
 import { playWorkspaceIntro } from "../lib/animations";
 
 const SAMPLE = [
@@ -45,6 +43,8 @@ export default function WorkspacePage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const ws = useWorkspace();
+  const { user } = useAuth();
+  const listActions = useListActions();
   const [createOpen, setCreateOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -54,7 +54,8 @@ export default function WorkspacePage() {
 
   // One-time staggered entrance, once the first list is on screen.
   const shellRef = useRef(null);
-  const introReady = ws.status === "ready" && (ws.lists.length === 0 || !!list);
+  const introReady =
+    ws.status === "ready" && (!listId || ws.lists.length === 0 || !!list);
   useLayoutEffect(() => {
     if (introReady) playWorkspaceIntro(shellRef.current);
   }, [introReady]);
@@ -108,6 +109,13 @@ export default function WorkspacePage() {
         setCreateOpen(true);
         onNavigate();
       }}
+      onHome={() => {
+        navigate(`/app?view=${view}`);
+        onNavigate();
+      }}
+      onToggleFavorite={listActions.toggleFavorite}
+      onArchive={listActions.archive}
+      onDelete={listActions.askDelete}
     />
   );
   const header = ({ openDrawer }) => (
@@ -148,28 +156,18 @@ export default function WorkspacePage() {
         </Button>
       </Panel>
     );
-  } else if (ws.lists.length === 0) {
+  } else if (!listId || ws.lists.length === 0) {
+    // Nothing open: a fresh "name a list" screen (also the first-run screen).
     body = (
-      <Panel
-        icon={Sparkles}
-        title="Make your first list"
-        body="Lists can mix checkbox tasks with plain notes, and be shared with a link."
-      >
-        <Button variant="primary" size="lg" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" aria-hidden />
-          New list
-        </Button>
-        <Button size="lg" onClick={createSample}>
-          Start with a sample
-        </Button>
-      </Panel>
+      <WorkspaceHome
+        lists={ws.lists}
+        userName={user?.name}
+        onCreate={(title) => createList({ title })}
+        onCustomize={() => setCreateOpen(true)}
+        onSample={createSample}
+        onOpen={open}
+      />
     );
-  } else if (!listId) {
-    const target =
-      listsForView(ws.lists, view)[0] ||
-      ws.lists.find((l) => !l.archived) ||
-      ws.lists[0];
-    return <Navigate to={`/app/${target.id}?view=${view}`} replace />;
   } else if (!list) {
     body = (
       <Panel
@@ -191,6 +189,7 @@ export default function WorkspacePage() {
       <AppShell rootRef={shellRef} sidebar={sidebar} header={header}>
         {body}
       </AppShell>
+      {listActions.deleteDialog}
       <ListFormModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

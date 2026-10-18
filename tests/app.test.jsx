@@ -90,6 +90,11 @@ describe("workspace (local dev mode)", () => {
     // ...and restored after a fresh mount (a "refresh").
     first.unmount();
     mount();
+    // /app is the home screen: jump back into the list from there.
+    const recent = await screen.findByRole("region", { name: /jump back in/i });
+    await user.click(
+      within(recent).getByRole("button", { name: /welcome to ordly/i }),
+    );
     expect(
       await screen.findByDisplayValue("Welcome to Ordly"),
     ).toBeInTheDocument();
@@ -101,7 +106,7 @@ describe("workspace (local dev mode)", () => {
     const user = userEvent.setup();
     mount();
     await user.click(
-      await screen.findByRole("button", { name: /^new list$/i }),
+      await screen.findByRole("button", { name: /^create new list$/i }),
     );
     const dialog = await screen.findByRole("dialog", { name: /new list/i });
     await user.type(within(dialog).getByLabelText(/name/i), "Groceries");

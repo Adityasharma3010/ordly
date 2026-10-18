@@ -69,15 +69,19 @@ body {
   overscroll-behavior-y: none;
 }
 
-/* One consistent, visible keyboard focus ring. */
-:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-input:focus-visible,
-textarea:focus-visible {
-  outline-offset: 0;
+/* One consistent, visible keyboard focus ring. It lives in the base layer so a component
+   that draws its own focus style (focus:outline-none + a border/background change) wins;
+   unlayered, this rule beat those utilities and gave text boxes a second border. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  input:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+  }
 }
 
 ::selection {

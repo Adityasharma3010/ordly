@@ -569,7 +569,7 @@ export function playStory(root) {
     root.querySelectorAll("[data-s=step]").forEach((el, n) => {
       el.dataset.active = n === 0 ? "true" : "false";
     });
-    gsap.set(root.querySelector("[data-s=rail]"), { scaleY: 0 });
+    gsap.set(root.querySelectorAll("[data-s=rail]"), { scaleY: 0 });
 
     const tl = gsap.timeline({
       defaults: { ease: "power2.out" },
@@ -586,8 +586,12 @@ export function playStory(root) {
           root.querySelectorAll("[data-s=step]").forEach((el, n) => {
             el.dataset.active = n === i ? "true" : "false";
           });
-          gsap.set(root.querySelector("[data-s=rail]"), {
-            scaleY: self.progress,
+          // Each stretch of line fills as you scroll toward its dot, and is full when that
+          // dot lights up.
+          root.querySelectorAll("[data-s=rail]").forEach((seg, n) => {
+            gsap.set(seg, {
+              scaleY: gsap.utils.clamp(0, 1, (self.progress - n * 0.34) / 0.34),
+            });
           });
         },
       },

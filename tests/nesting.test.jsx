@@ -34,7 +34,7 @@ const byText = (items, text) => items.find((i) => i.text === text);
 async function start() {
   const user = userEvent.setup();
   mount();
-  await user.click(await screen.findByRole("button", { name: /^new list$/i }));
+  await user.click(await screen.findByRole("button", { name: /^create new list$/i }));
   const dialog = await screen.findByRole("dialog", { name: /new list/i });
   await user.type(within(dialog).getByLabelText(/name/i), "Trip");
   await user.click(

@@ -1,15 +1,19 @@
 import { motion } from "motion/react";
 import {
   Archive,
+  ArchiveRestore,
   ChevronsLeft,
   ChevronsRight,
   Clock,
   Layers,
   List,
+  MoreHorizontal,
   Plus,
   Star,
+  Trash2,
   Users,
 } from "lucide-react";
+import { Menu } from "../ui/Menu";
 import { Logo, LogoMark } from "../ui/Logo";
 import { UserMenu } from "./UserMenu";
 import { accentHex } from "../../utils/appearance";
@@ -31,6 +35,10 @@ export function Sidebar({
   activeId,
   onSelect,
   onCreate,
+  onHome,
+  onToggleFavorite,
+  onArchive,
+  onDelete,
   collapsed,
   onToggleCollapse,
   mobile,
@@ -52,7 +60,15 @@ export function Sidebar({
       <div
         className={`flex h-14 shrink-0 items-center ${slim ? "justify-center" : "justify-between px-4"}`}
       >
-        {slim ? <LogoMark /> : <Logo />}
+        <button
+          type="button"
+          onClick={onHome}
+          aria-label="Ordly home"
+          title="Home"
+          className="cursor-pointer rounded-lg transition-opacity hover:opacity-80"
+        >
+          {slim ? <LogoMark /> : <Logo />}
+        </button>
         {!mobile && !slim && (
           <button
             aria-label="Collapse sidebar"
@@ -140,8 +156,9 @@ export function Sidebar({
             {visible.map((l) => {
               const stats = getStats(l.items);
               const on = l.id === activeId;
+              const isOwner = l.role === "owner";
               return (
-                <li key={l.id} data-anim="row">
+                <li key={l.id} data-anim="row" className="group relative">
                   <button
                     onClick={() => onSelect(l.id)}
                     aria-current={on ? "true" : undefined}
@@ -167,7 +184,7 @@ export function Sidebar({
                     )}
                     {!slim && stats.remaining > 0 && (
                       <span
-                        className="text-xs text-faint tabular-nums"
+                        className={`text-xs text-faint tabular-nums ${isOwner ? "group-has-[:focus-visible]:invisible group-hover:invisible" : ""}`}
                         aria-label={`${stats.remaining} tasks left`}
                       >
                         {stats.remaining}
@@ -175,6 +192,47 @@ export function Sidebar({
                     )}
                     {slim && <span className="sr-only">{l.title}</span>}
                   </button>
+                  {/* Favorite / archive / delete without opening the list first. */}
+                  {!slim && isOwner && (
+                    <div className="absolute top-1/2 right-1 -translate-y-1/2">
+                      <Menu
+                        width="w-52"
+                        items={[
+                          {
+                            label: l.favorite
+                              ? "Remove from favorites"
+                              : "Add to favorites",
+                            icon: Star,
+                            onClick: () => onToggleFavorite(l),
+                          },
+                          {
+                            label: l.archived
+                              ? "Restore from archive"
+                              : "Archive list",
+                            icon: l.archived ? ArchiveRestore : Archive,
+                            onClick: () => onArchive(l),
+                          },
+                          { divider: true },
+                          {
+                            label: "Delete list…",
+                            icon: Trash2,
+                            danger: true,
+                            onClick: () => onDelete(l),
+                          },
+                        ]}
+                        trigger={({ ref, props }) => (
+                          <button
+                            ref={ref}
+                            {...props}
+                            aria-label={`Actions for “${l.title}”`}
+                            className={`grid size-7 cursor-pointer place-items-center rounded-md text-faint transition-colors hover:bg-line/60 hover:text-fg aria-expanded:opacity-100 ${mobile ? "" : "opacity-0 group-has-[:focus-visible]:opacity-100 group-hover:opacity-100"}`}
+                          >
+                            <MoreHorizontal className="size-4" aria-hidden />
+                          </button>
+                        )}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -44,15 +44,6 @@ export function StoryPin() {
               Capture. <em className="text-accent-ink">Nest.</em> Share.
             </h2>
             <ol className="relative mt-6 space-y-6 lg:mt-9 lg:pl-9">
-              <span
-                aria-hidden
-                className="absolute top-2 bottom-2 left-[7px] w-px bg-line max-lg:hidden"
-              />
-              <span
-                data-s="rail"
-                aria-hidden
-                className="absolute top-2 bottom-2 left-[7px] w-px origin-top bg-accent max-lg:hidden"
-              />
               {STEPS.map((s, i) => (
                 <li
                   key={s.title}
@@ -60,6 +51,21 @@ export function StoryPin() {
                   data-active="true"
                   className="group relative data-[active=false]:max-lg:hidden"
                 >
+                  {/* The line down to the next dot: grey underneath, amber filling as you scroll.
+                      The last step has none, so the line ends exactly at the last dot. */}
+                  {i < STEPS.length - 1 && (
+                    <>
+                      <span
+                        aria-hidden
+                        className="absolute top-[13.5px] -left-[29px] h-[calc(100%+1.5rem)] w-px bg-line max-lg:hidden"
+                      />
+                      <span
+                        data-s="rail"
+                        aria-hidden
+                        className="absolute top-[13.5px] -left-[29px] h-[calc(100%+1.5rem)] w-px origin-top bg-accent max-lg:hidden"
+                      />
+                    </>
+                  )}
                   <span
                     aria-hidden
                     className="absolute top-1.5 -left-9 grid size-[15px] place-items-center rounded-full border border-line-strong bg-bg transition-colors group-data-[active=true]:border-accent max-lg:hidden"

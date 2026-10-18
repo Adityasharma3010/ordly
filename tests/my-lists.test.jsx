@@ -131,11 +131,11 @@ const count = (label) =>
 const rowTitles = () => {
   const ul = nav().querySelectorAll("ul")[1]; // 0 = view links, 1 = lists in the current view
   return ul
-    ? [...ul.querySelectorAll("button")].map((b) => b.getAttribute("title"))
+    ? [...ul.querySelectorAll("button[title]")].map((b) => b.getAttribute("title"))
     : [];
 };
-// Resolves once the workspace is loaded AND settled: /app first redirects to a list, so wait
-// until either a list is open or the first-run screen is showing.
+// Resolves once the workspace is loaded AND settled: wait until either a list is open or the
+// home screen (nothing open yet) is showing.
 const ready = async () => {
   await waitFor(() => {
     expect(
@@ -146,7 +146,7 @@ const ready = async () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText("List title") ||
-        screen.queryByText(/make your first list/i),
+        screen.queryByLabelText("Name for a new list"),
     ).toBeTruthy();
   });
   return nav();
@@ -236,6 +236,29 @@ describe("My Lists navigation", () => {
     expect(count("All lists")).toBe(3);
     await goTo(user, "Shared with me");
     expect(rowTitles().sort()).toEqual(["From Bob", "From Eve"]);
+  });
+
+  it("only lists you own get the favorite / archive / delete menu in the sidebar", async () => {
+    h.db.lists = [
+      stored("Mine"),
+      shared("From Bob", "viewer"),
+      shared("From Eve", "editor"),
+    ];
+    const user = userEvent.setup();
+    mount("/app");
+    await ready();
+    const menu = (title) =>
+      within(nav()).queryByRole("button", {
+        name: new RegExp(`actions for “${title}”`, "i"),
+      });
+    expect(menu("Mine")).toBeInTheDocument();
+    expect(menu("From Bob")).not.toBeInTheDocument();
+    expect(menu("From Eve")).not.toBeInTheDocument();
+
+    await user.click(menu("Mine"));
+    expect(
+      await screen.findByRole("menuitem", { name: /add to favorites/i }),
+    ).toBeInTheDocument();
   });
 
   it("creating a list puts it in My Lists and All lists", async () => {
