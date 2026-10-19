@@ -271,6 +271,33 @@ export const supabaseApi = {
       .eq("user_id", userId);
     fail(error);
   },
+  // ---------- Templates ----------
+  async listTemplates() {
+    const { data, error } = await supabase
+      .from("list_templates")
+      .select("id, title, icon, color, description, items, created_at")
+      .order("created_at", { ascending: false });
+    fail(error);
+    return data || [];
+  },
+  async createTemplate(t) {
+    const { id, title, icon, color, description, items } = t;
+    const { error } = await supabase
+      .from("list_templates")
+      .upsert(
+        { id, title, icon, color, description, items },
+        { onConflict: "id", ignoreDuplicates: true },
+      );
+    fail(error);
+  },
+  async deleteTemplate(id) {
+    const { error } = await supabase
+      .from("list_templates")
+      .delete()
+      .eq("id", id);
+    fail(error);
+  },
+
   async setMemberRole(listId, userId, role) {
     const { error } = await supabase.rpc("set_member_role", {
       p_list_id: listId,

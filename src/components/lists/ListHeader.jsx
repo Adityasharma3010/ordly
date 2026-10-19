@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Archive,
   ArchiveRestore,
+  BookmarkPlus,
   Copy,
   MoreHorizontal,
   Pencil,
@@ -21,6 +22,7 @@ export function ListHeader({
   onShare,
   onEdit,
   onDuplicate,
+  onSaveTemplate,
   onArchive,
   onDelete,
 }) {
@@ -44,6 +46,7 @@ export function ListHeader({
       disabled: !isOwner,
     },
     { label: "Duplicate list", icon: Copy, onClick: onDuplicate },
+    { label: "Save as template…", icon: BookmarkPlus, onClick: onSaveTemplate },
     {
       label: list.archived ? "Restore from archive" : "Archive list",
       icon: list.archived ? ArchiveRestore : Archive,

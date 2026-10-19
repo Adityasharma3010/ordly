@@ -12,6 +12,7 @@ import { plural } from "../../utils/format";
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { ListHeader } from "./ListHeader";
+import { SaveTemplateModal } from "../templates/SaveTemplateModal";
 import { ListFormModal } from "./ListFormModal";
 import { ProgressBar } from "../checklist/ProgressBar";
 import { ItemComposer } from "../checklist/ItemComposer";
@@ -29,7 +30,7 @@ export function ListWorkspace({ list }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = usePersistentState("ordly.sort", "custom");
   const [query, setQuery] = useState(params.get("q") || "");
-  const [modal, setModal] = useState(null); // 'edit' | 'delete' | 'share'
+  const [modal, setModal] = useState(null); // 'edit' | 'delete' | 'share' | 'template'
 
   const canEdit = list.role !== "viewer";
   const isOwner = list.role === "owner";
@@ -87,6 +88,7 @@ export function ListWorkspace({ list }) {
         onShare={() => setModal("share")}
         onEdit={() => setModal("edit")}
         onDuplicate={duplicate}
+        onSaveTemplate={() => setModal("template")}
         onArchive={archive}
         onDelete={() => setModal("delete")}
       />
@@ -205,6 +207,20 @@ export function ListWorkspace({ list }) {
           ws.deleteList(list.id);
           navigate("/app");
           toast({ message: "List deleted" });
+        }}
+      />
+      <SaveTemplateModal
+        open={modal === "template"}
+        list={list}
+        onClose={() => setModal(null)}
+        onSave={(name) => {
+          const result = ws.saveTemplate(list.id, name);
+          if (result.ok)
+            toast({
+              tone: "success",
+              message: "Template saved. Find it on your home screen.",
+            });
+          return result;
         }}
       />
       <ShareModal

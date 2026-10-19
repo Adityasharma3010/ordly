@@ -86,11 +86,27 @@ create table public.list_invites (
   unique (list_id, email)
 );
 
+-- Saved templates ("Save as template" on a list): a private tree of items to start new
+-- lists from.
+create table public.list_templates (
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  title       text not null check (char_length(title) between 1 and 200),
+  icon        text not null default '' check (char_length(icon) <= 16),
+  color       text not null default 'amber' check (char_length(color) <= 24),
+  description text not null default '' check (char_length(description) <= 2000),
+  -- A tree: [{ "text": "...", "notes": "...", "has_checkbox": true, "children": [ ... ] }]
+  items       jsonb not null default '[]'::jsonb
+              check (jsonb_typeof(items) = 'array' and pg_column_size(items) < 262144),
+  created_at  timestamptz not null default now()
+);
+
 -- ---------- Indexes --------------------------------------------------
 
 create index lists_owner_idx          on public.lists (owner_id);
 create index list_items_list_pos_idx  on public.list_items (list_id, position);
 create index list_items_parent_idx    on public.list_items (list_id, parent_id);
+create index list_templates_owner_idx on public.list_templates (owner_id, created_at desc);
 create index list_shares_list_idx     on public.list_shares (list_id);
 create index list_members_user_idx    on public.list_members (user_id);
 -- At most one active link per list (its permission can be switched view <-> edit).
@@ -223,6 +239,7 @@ alter table public.list_items   enable row level security;
 alter table public.list_shares  enable row level security;
 alter table public.list_members enable row level security;
 alter table public.list_invites enable row level security;
+alter table public.list_templates enable row level security;
 
 revoke all on all tables in schema public from anon;
 
@@ -273,6 +290,11 @@ create policy "members_delete" on public.list_members for delete to authenticate
 create policy "invites_owner_all" on public.list_invites for all to authenticated
   using (public.list_access(list_id) = 'owner')
   with check (public.list_access(list_id) = 'owner');
+
+-- list_templates: private to the owner, for everything.
+create policy "templates_owner_all" on public.list_templates for all to authenticated
+  using (owner_id = auth.uid())
+  with check (owner_id = auth.uid());
 
 -- ---------- Sharing functions ----------------------------------------
 
@@ -446,7 +468,7 @@ grant  execute on function public.set_member_role(uuid, uuid, text) to authentic
 alter publication supabase_realtime add table public.lists, public.list_items, public.list_members;
 
 -- ---------- To reset during development -----------------------------
--- drop table if exists public.list_invites, public.list_members, public.list_shares, public.list_items,
+-- drop table if exists public.list_templates, public.list_invites, public.list_members, public.list_shares, public.list_items,
 --   public.lists, public.profiles cascade;
 -- drop function if exists public.get_shared_list(text), public.redeem_share(text),
 --   public.claim_invites(), public.set_member_role(uuid, uuid, text), public.share_is_live(uuid),

@@ -144,6 +144,20 @@ export const localApi = {
   async removeMember() {
     unsupported();
   },
+  async listTemplates() {
+    return read().templates || [];
+  },
+  async createTemplate(t) {
+    mutate((db) => {
+      db.templates = db.templates || [];
+      if (!db.templates.some((x) => x.id === t.id)) db.templates.unshift(t);
+    });
+  },
+  async deleteTemplate(id) {
+    mutate((db) => {
+      db.templates = (db.templates || []).filter((x) => x.id !== id);
+    });
+  },
   async setMemberRole() {
     unsupported();
   },

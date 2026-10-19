@@ -74,16 +74,16 @@ describe("home screen (nothing open yet)", () => {
     expect(lists()).toHaveLength(2);
   });
 
-  it("idea chips fill in the name for you to confirm, without creating anything", async () => {
-    const user = userEvent.setup();
+  it("offers template chips, and creates nothing until you pick one", async () => {
     mount();
-    await user.click(
-      await screen.findByRole("button", { name: "Packing list" }),
-    );
-    expect(screen.getByLabelText("Name for a new list")).toHaveValue(
-      "Packing list",
-    );
-    expect(screen.getByLabelText("Name for a new list")).toHaveFocus();
+    const label = await screen.findByText(/or start from a template/i);
+    const chips = within(label.nextElementSibling);
+    expect(
+      chips.getByRole("button", { name: "Packing list" }),
+    ).toBeInTheDocument();
+    expect(
+      chips.getByRole("button", { name: /all templates/i }),
+    ).toBeInTheDocument();
     expect(lists()).toHaveLength(0);
   });
 

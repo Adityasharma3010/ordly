@@ -20,6 +20,14 @@ import {
   POSITION_STEP,
 } from "../utils/position";
 import { computeRollup, siblingsOf, subtreeIds } from "../utils/tree";
+import {
+  MAX_TEMPLATE_BYTES,
+  MAX_TEMPLATE_DEPTH,
+  templateBytes,
+  templateDepth,
+  templateItems,
+  templateTreeFromItems,
+} from "../utils/templates";
 
 const WorkspaceContext = createContext(null);
 
@@ -29,7 +37,19 @@ function reducer(state, a) {
   const mapList = (id, fn) => state.lists.map((l) => (l.id === id ? fn(l) : l));
   switch (a.type) {
     case "loaded":
-      return { status: "ready", error: null, lists: a.lists };
+      return {
+        status: "ready",
+        error: null,
+        lists: a.lists,
+        templates: a.templates ?? state.templates,
+      };
+    case "addTemplate":
+      return { ...state, templates: [a.template, ...state.templates] };
+    case "removeTemplate":
+      return {
+        ...state,
+        templates: state.templates.filter((t) => t.id !== a.id),
+      };
     case "loading":
       return { ...state, status: "loading", error: null };
     case "error":
@@ -97,7 +117,7 @@ function reducer(state, a) {
 }
 
 const DEBOUNCE_MS = 600;
-const INITIAL = { status: "loading", error: null, lists: [] };
+const INITIAL = { status: "loading", error: null, lists: [], templates: [] };
 
 export function WorkspaceProvider({ children }) {
   const { user } = useAuth();
@@ -121,8 +141,15 @@ export function WorkspaceProvider({ children }) {
     if (!userId) return;
     if (stateRef.current.status === "error") dispatch({ type: "loading" });
     try {
-      const lists = await api.fetchWorkspace(userId);
-      dispatch({ type: "loaded", lists });
+      // Templates are a bonus: if they can't be loaded (for example the database step
+      // for them has not been run yet) the lists must still open.
+      const [lists, templates] = await Promise.all([
+        api.fetchWorkspace(userId),
+        Promise.resolve()
+          .then(() => api.listTemplates())
+          .catch(() => undefined),
+      ]);
+      dispatch({ type: "loaded", lists, templates });
     } catch (e) {
       dispatch({ type: "error", error: e.message });
     }
@@ -248,6 +275,72 @@ export function WorkspaceProvider({ children }) {
       else persist(() => api.updateList(id, patch));
     },
     [dispatch, debounced, persist],
+  );
+
+  // A new list that starts with a template's items (nested as the template nests them).
+  // `title` replaces the template's own name, for when you typed one.
+  const createListFromTemplate = useCallback(
+    (template, { title } = {}) => {
+      const now = nowIso();
+      const id = uid();
+      const list = {
+        id,
+        owner_id: userId,
+        title: (title?.trim() || template.title || "Untitled list").slice(
+          0,
+          200,
+        ),
+        description: template.description || "",
+        icon: template.icon || "",
+        color: template.color || "amber",
+        favorite: false,
+        archived: false,
+        created_at: now,
+        updated_at: now,
+        role: "owner",
+        items: templateItems(template, id, { uid, now }),
+      };
+      dispatch({ type: "addList", list });
+      persist(() => api.createList(list));
+      if (list.items.length) persist(() => api.insertItems(list.items));
+      return id;
+    },
+    [dispatch, userId, persist],
+  );
+
+  // Keeps a list's items as a template. Returns { ok: true } or { ok: false, reason }.
+  const saveTemplate = useCallback(
+    (listId, name) => {
+      const list = getList(listId);
+      if (!list) return { ok: false, reason: "missing" };
+      if (!list.items.length) return { ok: false, reason: "empty" };
+      const items = templateTreeFromItems(list.items);
+      if (templateDepth(items) > MAX_TEMPLATE_DEPTH)
+        return { ok: false, reason: "too-deep" };
+      if (templateBytes(items) > MAX_TEMPLATE_BYTES)
+        return { ok: false, reason: "too-big" };
+      const template = {
+        id: uid(),
+        title: (name?.trim() || list.title).slice(0, 200),
+        icon: list.icon || "",
+        color: list.color || "amber",
+        description: (list.description || "").slice(0, 2000),
+        items,
+        created_at: nowIso(),
+      };
+      dispatch({ type: "addTemplate", template });
+      persist(() => api.createTemplate(template));
+      return { ok: true, id: template.id };
+    },
+    [dispatch, getList, persist],
+  );
+
+  const deleteTemplate = useCallback(
+    (id) => {
+      dispatch({ type: "removeTemplate", id });
+      persist(() => api.deleteTemplate(id));
+    },
+    [dispatch, persist],
   );
 
   const duplicateList = useCallback(
@@ -528,9 +621,13 @@ export function WorkspaceProvider({ children }) {
       status: state.status,
       error: state.error,
       lists: state.lists,
+      templates: state.templates,
       reload,
       getList,
       createList,
+      createListFromTemplate,
+      saveTemplate,
+      deleteTemplate,
       updateList,
       duplicateList,
       deleteList,
@@ -550,6 +647,9 @@ export function WorkspaceProvider({ children }) {
       reload,
       getList,
       createList,
+      createListFromTemplate,
+      saveTemplate,
+      deleteTemplate,
       updateList,
       duplicateList,
       deleteList,

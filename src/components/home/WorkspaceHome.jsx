@@ -1,11 +1,13 @@
 import { useRef, useState } from "react";
 import { ArrowUp, Plus, Sparkles } from "lucide-react";
 import { Button } from "../ui/Button";
+import { STARTER_TEMPLATES } from "../../data/starterTemplates";
 import { accentHex } from "../../utils/appearance";
 import { timeAgo } from "../../utils/format";
 import { getStats } from "../../utils/listStats";
 
-const IDEAS = ["Groceries", "Packing list", "Weekend to-dos", "Project plan"];
+// How many template chips fit under the name box (your own saved templates come first).
+const CHIPS = 6;
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -24,8 +26,11 @@ const greeting = () => {
  */
 export function WorkspaceHome({
   lists,
+  templates = [],
   userName,
   onCreate,
+  onTemplate,
+  onAllTemplates,
   onCustomize,
   onSample,
   onOpen,
@@ -37,6 +42,10 @@ export function WorkspaceHome({
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
     .slice(0, 6);
   const first = lists.length === 0;
+  const chips = [...templates.slice(0, 3), ...STARTER_TEMPLATES].slice(
+    0,
+    CHIPS,
+  );
   const firstName = (userName || "").split(" ")[0];
 
   const submit = (e) => {
@@ -85,20 +94,28 @@ export function WorkspaceHome({
         </button>
       </form>
 
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        {IDEAS.map((idea) => (
+      <p className="mt-6 text-center text-[11px] font-medium tracking-wider text-faint uppercase">
+        Or start from a template
+      </p>
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        {chips.map((t) => (
           <button
-            key={idea}
+            key={t.id}
             type="button"
-            onClick={() => {
-              setTitle(idea);
-              inputRef.current?.focus();
-            }}
-            className="cursor-pointer rounded-full border border-line px-3 py-1 text-[13px] text-muted transition-colors hover:border-line-strong hover:bg-raised hover:text-fg"
+            onClick={() => onTemplate(t, title.trim())}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line px-3 py-1 text-[13px] text-muted transition-colors hover:border-line-strong hover:bg-raised hover:text-fg"
           >
-            {idea}
+            <span aria-hidden>{t.icon}</span>
+            {t.title}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={onAllTemplates}
+          className="cursor-pointer rounded-full px-3 py-1 text-[13px] text-faint transition-colors hover:text-fg"
+        >
+          All templates…
+        </button>
         <button
           type="button"
           onClick={onCustomize}

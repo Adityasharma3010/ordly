@@ -51,6 +51,11 @@ function preorder(groups) {
   return order;
 }
 
+// Every item, parents before their children, siblings in position order.
+export function itemsInTreeOrder(items) {
+  return preorder(childrenByParent(items));
+}
+
 // How one child adds to its parent's progress. A task with no sub-tasks counts as one;
 // a task with sub-tasks, or a plain-text section, counts as the tasks inside it.
 function contribution(child, r) {

@@ -11,6 +11,8 @@ import { ShareModal } from "../components/sharing/ShareModal";
 import { Button } from "../components/ui/Button";
 import { Skeleton } from "../components/ui/Skeleton";
 import { useAuth } from "../contexts/AuthContext";
+import { useToast } from "../contexts/ToastContext";
+import { TemplatePicker } from "../components/templates/TemplatePicker";
 import { useWorkspace } from "../contexts/WorkspaceContext";
 import { useListActions } from "../hooks/useListActions";
 import { VIEWS } from "../utils/listStats";
@@ -44,9 +46,11 @@ export default function WorkspacePage() {
   const navigate = useNavigate();
   const ws = useWorkspace();
   const { user } = useAuth();
+  const { toast } = useToast();
   const listActions = useListActions();
   const [createOpen, setCreateOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const view = VIEWS[params.get("view")] ? params.get("view") : "all";
   const q = params.get("q") || "";
@@ -78,6 +82,15 @@ export default function WorkspacePage() {
   const createList = (values) => {
     const id = ws.createList(values);
     navigate(`/app/${id}?view=all`);
+  };
+  // A new list that starts with a template's items; a name typed on the home screen wins.
+  const startFromTemplate = (template, title) => {
+    const id = ws.createListFromTemplate(template, { title });
+    navigate(`/app/${id}?view=all`);
+    toast({
+      tone: "success",
+      message: `Created “${title || template.title}” from a template`,
+    });
   };
   const createSample = () => {
     const id = ws.createList({
@@ -161,8 +174,11 @@ export default function WorkspacePage() {
     body = (
       <WorkspaceHome
         lists={ws.lists}
+        templates={ws.templates}
         userName={user?.name}
         onCreate={(title) => createList({ title })}
+        onTemplate={startFromTemplate}
+        onAllTemplates={() => setPickerOpen(true)}
         onCustomize={() => setCreateOpen(true)}
         onSample={createSample}
         onOpen={open}
@@ -190,6 +206,19 @@ export default function WorkspacePage() {
         {body}
       </AppShell>
       {listActions.deleteDialog}
+      <TemplatePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        userTemplates={ws.templates}
+        onPick={(t) => {
+          setPickerOpen(false);
+          startFromTemplate(t);
+        }}
+        onDelete={(t) => {
+          ws.deleteTemplate(t.id);
+          toast({ message: "Template deleted" });
+        }}
+      />
       <ListFormModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
