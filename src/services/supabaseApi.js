@@ -113,20 +113,34 @@ export const supabaseApi = {
   },
   async createList(list) {
     const { id, title, description, icon, color, favorite, archived } = list;
-    const { error } = await supabase
-      .from("lists")
-      .upsert(
-        { id, title, description, icon, color, favorite, archived },
-        { onConflict: "id", ignoreDuplicates: true },
-      );
+    const { parent_list_id } = list;
+    const { error } = await supabase.from("lists").upsert(
+      {
+        id,
+        title,
+        description,
+        icon,
+        color,
+        favorite,
+        archived,
+        // Only sent for sub-lists, so top-level lists keep saving even before sub-lists.sql is run.
+        ...(parent_list_id ? { parent_list_id } : {}),
+      },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
     fail(error);
   },
   async updateList(id, patch) {
     const { error } = await supabase.from("lists").update(patch).eq("id", id);
     fail(error);
   },
+  async updateLists(ids, patch) {
+    if (!ids.length) return;
+    const { error } = await supabase.from("lists").update(patch).in("id", ids);
+    fail(error);
+  },
   async deleteList(id) {
-    // list_items / list_shares / list_members are removed by ON DELETE CASCADE.
+    // list_items / list_shares / list_members, and any sub-lists, are removed by ON DELETE CASCADE.
     const { error } = await supabase.from("lists").delete().eq("id", id);
     fail(error);
   },

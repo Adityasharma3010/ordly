@@ -4,6 +4,7 @@ import {
   ArchiveRestore,
   BookmarkPlus,
   Copy,
+  FolderInput,
   MoreHorizontal,
   Pencil,
   Share2,
@@ -24,6 +25,7 @@ export function ListHeader({
   onDuplicate,
   onSaveTemplate,
   onArchive,
+  onMove,
   onDelete,
 }) {
   const isOwner = list.role === "owner";
@@ -47,6 +49,12 @@ export function ListHeader({
     },
     { label: "Duplicate list", icon: Copy, onClick: onDuplicate },
     { label: "Save as template…", icon: BookmarkPlus, onClick: onSaveTemplate },
+    {
+      label: "Move to…",
+      icon: FolderInput,
+      onClick: onMove,
+      disabled: !isOwner,
+    },
     {
       label: list.archived ? "Restore from archive" : "Archive list",
       icon: list.archived ? ArchiveRestore : Archive,

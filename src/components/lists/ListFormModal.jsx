@@ -7,13 +7,19 @@ import { ACCENT_KEYS, ACCENTS, EMOJI_CHOICES } from "../../utils/appearance";
 
 // Used for both "New list" and "Edit details". The modal only mounts its body while
 // open, so the form state starts fresh from `list` every time it opens.
-export function ListFormModal({ open, onClose, onSubmit, list }) {
+export function ListFormModal({ open, onClose, onSubmit, list, parentTitle }) {
   const titleRef = useRef(null);
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={list ? "Edit list details" : "New list"}
+      title={
+        list
+          ? "Edit list details"
+          : parentTitle
+            ? `New sub-list in “${parentTitle}”`
+            : "New list"
+      }
       initialFocus={titleRef}
     >
       <ListForm

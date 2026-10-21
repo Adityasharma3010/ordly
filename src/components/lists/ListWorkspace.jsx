@@ -5,12 +5,11 @@ import { useWorkspace } from "../../contexts/WorkspaceContext";
 import { useToast } from "../../contexts/ToastContext";
 import { api } from "../../services/api";
 import { getStats } from "../../utils/listStats";
+import { plural } from "../../utils/format";
 import { buildRows } from "../../utils/tree";
 import { usePersistentState } from "../../hooks/usePersistentState";
 import { accentHex } from "../../utils/appearance";
-import { plural } from "../../utils/format";
 import { Button } from "../ui/Button";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { ListHeader } from "./ListHeader";
 import { SaveTemplateModal } from "../templates/SaveTemplateModal";
 import { ListFormModal } from "./ListFormModal";
@@ -21,7 +20,7 @@ import { Checklist } from "../checklist/Checklist";
 import { EmptyItems, NoMatches } from "../checklist/EmptyState";
 import { ShareModal } from "../sharing/ShareModal";
 
-export function ListWorkspace({ list }) {
+export function ListWorkspace({ list, actions }) {
   const ws = useWorkspace();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -30,7 +29,7 @@ export function ListWorkspace({ list }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = usePersistentState("ordly.sort", "custom");
   const [query, setQuery] = useState(params.get("q") || "");
-  const [modal, setModal] = useState(null); // 'edit' | 'delete' | 'share' | 'template'
+  const [modal, setModal] = useState(null); // 'edit' | 'share' | 'template'
 
   const canEdit = list.role !== "viewer";
   const isOwner = list.role === "owner";
@@ -56,17 +55,9 @@ export function ListWorkspace({ list }) {
   const toggleFold = (id) => setFolded(id, !(folded || []).includes(id));
   const dragEnabled = sort === "custom" && filter === "all" && !query.trim();
 
-  const archive = () => {
-    ws.updateList(list.id, { archived: !list.archived });
-    toast({
-      tone: "success",
-      message: list.archived ? "List restored" : "List archived",
-      action: {
-        label: "Undo",
-        onClick: () => ws.updateList(list.id, { archived: list.archived }),
-      },
-    });
-  };
+  // Archive, move and delete also take the lists inside this one, so they live in one
+  // place (useListActions) that asks first when there are any.
+  const archive = () => actions.archive(list);
   const duplicate = () => {
     const id = ws.duplicateList(list.id);
     if (id) {
@@ -90,7 +81,8 @@ export function ListWorkspace({ list }) {
         onDuplicate={duplicate}
         onSaveTemplate={() => setModal("template")}
         onArchive={archive}
-        onDelete={() => setModal("delete")}
+        onMove={() => actions.askMove(list)}
+        onDelete={() => actions.askDelete(list)}
       />
 
       {list.archived && (
@@ -195,19 +187,6 @@ export function ListWorkspace({ list }) {
         list={list}
         onClose={() => setModal(null)}
         onSubmit={(v) => ws.updateList(list.id, v)}
-      />
-      <ConfirmDialog
-        open={modal === "delete"}
-        onClose={() => setModal(null)}
-        danger
-        confirmLabel="Delete list"
-        title={`Delete “${list.title}”?`}
-        description={`This permanently deletes the list and its ${plural(list.items.length, "item")}${api.capabilities.sharing ? ", and revokes all share links" : ""}. This can’t be undone.`}
-        onConfirm={() => {
-          ws.deleteList(list.id);
-          navigate("/app");
-          toast({ message: "List deleted" });
-        }}
       />
       <SaveTemplateModal
         open={modal === "template"}

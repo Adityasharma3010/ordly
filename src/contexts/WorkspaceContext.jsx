@@ -20,6 +20,7 @@ import {
   POSITION_STEP,
 } from "../utils/position";
 import { computeRollup, siblingsOf, subtreeIds } from "../utils/tree";
+import { canMoveList, listSubtreeIds } from "../utils/listTree";
 import {
   MAX_TEMPLATE_BYTES,
   MAX_TEMPLATE_DEPTH,
@@ -65,8 +66,19 @@ function reducer(state, a) {
         ...state,
         lists: mapList(a.id, (l) => touch({ ...l, ...a.patch })),
       };
-    case "removeList":
-      return { ...state, lists: state.lists.filter((l) => l.id !== a.id) };
+    case "patchLists": {
+      const ids = new Set(a.ids);
+      return {
+        ...state,
+        lists: state.lists.map((l) =>
+          ids.has(l.id) ? touch({ ...l, ...a.patch }) : l,
+        ),
+      };
+    }
+    case "removeLists": {
+      const ids = new Set(a.ids);
+      return { ...state, lists: state.lists.filter((l) => !ids.has(l.id)) };
+    }
     case "addItems":
       return {
         ...state,
@@ -244,11 +256,15 @@ export function WorkspaceProvider({ children }) {
       description = "",
       icon = "",
       color = "amber",
+      parent_list_id = null,
     } = {}) => {
       const now = nowIso();
+      // A sub-list can only go inside a list of yours.
+      const parent = parent_list_id ? getList(parent_list_id) : null;
       const list = {
         id: uid(),
         owner_id: userId,
+        parent_list_id: parent?.role === "owner" ? parent.id : null,
         title: title.trim() || "Untitled list",
         description,
         icon,
@@ -264,7 +280,7 @@ export function WorkspaceProvider({ children }) {
       persist(() => api.createList(list));
       return list.id;
     },
-    [userId, persist, dispatch],
+    [userId, persist, dispatch, getList],
   );
 
   const updateList = useCallback(
@@ -286,6 +302,7 @@ export function WorkspaceProvider({ children }) {
       const list = {
         id,
         owner_id: userId,
+        parent_list_id: null,
         title: (title?.trim() || template.title || "Untitled list").slice(
           0,
           200,
@@ -351,6 +368,9 @@ export function WorkspaceProvider({ children }) {
       const copy = {
         id: uid(),
         owner_id: userId,
+        // The copy sits next to the original (sub-lists inside it are not copied).
+        parent_list_id:
+          src.role === "owner" ? (src.parent_list_id ?? null) : null,
         title: `${src.title} (copy)`.slice(0, 200),
         description: src.description,
         icon: src.icon,
@@ -381,10 +401,61 @@ export function WorkspaceProvider({ children }) {
     [dispatch, getList, userId, persist],
   );
 
+  // Deleting a list deletes the lists inside it too (the database does the same).
   const deleteList = useCallback(
     (id) => {
-      dispatch({ type: "removeList", id });
+      const ids = listSubtreeIds(stateRef.current.lists, id);
+      dispatch({ type: "removeLists", ids });
       persist(() => api.deleteList(id));
+    },
+    [dispatch, persist],
+  );
+
+  // Move a list inside another list of yours (null = back to the top level).
+  // Returns false when that isn't allowed, so the screen can say so.
+  const moveList = useCallback(
+    (id, parentId) => {
+      const lists = stateRef.current.lists;
+      const list = lists.find((l) => l.id === id);
+      const parent = parentId ? lists.find((l) => l.id === parentId) : null;
+      if (!list || list.role !== "owner") return false;
+      if (parentId && parent?.role !== "owner") return false;
+      if (!canMoveList(lists, id, parentId)) return false;
+      if ((list.parent_list_id ?? null) === (parentId ?? null)) return true;
+      updateList(id, { parent_list_id: parentId ?? null });
+      return true;
+    },
+    [updateList],
+  );
+
+  // Archive or restore a list together with everything inside it. Returns what changed so
+  // the caller can offer Undo: { ids, previous } where previous maps id -> archived before.
+  const setListArchived = useCallback(
+    (id, archived) => {
+      const lists = stateRef.current.lists;
+      const ids = listSubtreeIds(lists, id).filter(
+        (x) => lists.find((l) => l.id === x)?.role === "owner",
+      );
+      const previous = Object.fromEntries(
+        ids.map((x) => [x, lists.find((l) => l.id === x).archived]),
+      );
+      dispatch({ type: "patchLists", ids, patch: { archived } });
+      persist(() => api.updateLists(ids, { archived }));
+      return { ids, previous };
+    },
+    [dispatch, persist],
+  );
+
+  const undoArchive = useCallback(
+    ({ previous }) => {
+      for (const archived of [true, false]) {
+        const ids = Object.keys(previous).filter(
+          (x) => previous[x] === archived,
+        );
+        if (!ids.length) continue;
+        dispatch({ type: "patchLists", ids, patch: { archived } });
+        persist(() => api.updateLists(ids, { archived }));
+      }
     },
     [dispatch, persist],
   );
@@ -631,6 +702,9 @@ export function WorkspaceProvider({ children }) {
       updateList,
       duplicateList,
       deleteList,
+      moveList,
+      setListArchived,
+      undoArchive,
       addItem,
       updateItem,
       removeItem,
@@ -653,6 +727,9 @@ export function WorkspaceProvider({ children }) {
       updateList,
       duplicateList,
       deleteList,
+      moveList,
+      setListArchived,
+      undoArchive,
       addItem,
       updateItem,
       removeItem,

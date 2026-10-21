@@ -49,6 +49,8 @@ export default function WorkspacePage() {
   const { toast } = useToast();
   const listActions = useListActions();
   const [createOpen, setCreateOpen] = useState(false);
+  // When set, the "New list" form creates a sub-list inside this list.
+  const [createParent, setCreateParent] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -80,7 +82,7 @@ export default function WorkspacePage() {
     );
 
   const createList = (values) => {
-    const id = ws.createList(values);
+    const id = ws.createList({ ...values, parent_list_id: createParent });
     navigate(`/app/${id}?view=all`);
   };
   // A new list that starts with a template's items; a name typed on the home screen wins.
@@ -119,9 +121,16 @@ export default function WorkspacePage() {
         onNavigate();
       }}
       onCreate={() => {
+        setCreateParent(null);
         setCreateOpen(true);
         onNavigate();
       }}
+      onCreateSub={(parent) => {
+        setCreateParent(parent.id);
+        setCreateOpen(true);
+        onNavigate();
+      }}
+      onMove={listActions.askMove}
       onHome={() => {
         navigate(`/app?view=${view}`);
         onNavigate();
@@ -179,7 +188,10 @@ export default function WorkspacePage() {
         onCreate={(title) => createList({ title })}
         onTemplate={startFromTemplate}
         onAllTemplates={() => setPickerOpen(true)}
-        onCustomize={() => setCreateOpen(true)}
+        onCustomize={() => {
+          setCreateParent(null);
+          setCreateOpen(true);
+        }}
         onSample={createSample}
         onOpen={open}
       />
@@ -197,7 +209,13 @@ export default function WorkspacePage() {
       </Panel>
     );
   } else {
-    body = <ListWorkspace key={`${list.id}|${q}`} list={list} />;
+    body = (
+      <ListWorkspace
+        key={`${list.id}|${q}`}
+        list={list}
+        actions={listActions}
+      />
+    );
   }
 
   return (
@@ -205,7 +223,7 @@ export default function WorkspacePage() {
       <AppShell rootRef={shellRef} sidebar={sidebar} header={header}>
         {body}
       </AppShell>
-      {listActions.deleteDialog}
+      {listActions.dialogs}
       <TemplatePicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
@@ -221,8 +239,12 @@ export default function WorkspacePage() {
       />
       <ListFormModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false);
+          setCreateParent(null);
+        }}
         onSubmit={createList}
+        parentTitle={createParent ? ws.getList(createParent)?.title : null}
       />
       {list?.role === "owner" && (
         <ShareModal

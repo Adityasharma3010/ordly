@@ -39,6 +39,9 @@ vi.mock("../src/services/api", () => {
           updated_at: new Date().toISOString(),
         });
       },
+      updateLists: async (ids, patch) => {
+        for (const id of ids) Object.assign(find(id), patch);
+      },
       deleteList: async (id) => {
         h.db.lists = h.db.lists.filter((l) => l.id !== id);
       },

@@ -1,6 +1,8 @@
 // DEVELOPMENT MODE ONLY. Used when Supabase env vars are missing.
 // Data lives in this browser's localStorage: no accounts, no cloud sync, no
 // sharing. The UI states this clearly rather than pretending otherwise.
+import { listSubtreeIds } from "../utils/listTree";
+
 const KEY = "ordly.local.v1";
 const LOCAL_USER = { id: "local-user", email: "this-device", name: "You" };
 
@@ -65,9 +67,19 @@ export const localApi = {
       if (l) Object.assign(l, patch, { updated_at: new Date().toISOString() });
     });
   },
-  async deleteList(id) {
+  async updateLists(ids, patch) {
+    const set = new Set(ids);
     mutate((db) => {
-      db.lists = db.lists.filter((l) => l.id !== id);
+      for (const l of db.lists)
+        if (set.has(l.id))
+          Object.assign(l, patch, { updated_at: new Date().toISOString() });
+    });
+  },
+  async deleteList(id) {
+    // Like the database, deleting a list takes the lists inside it too.
+    mutate((db) => {
+      const gone = new Set(listSubtreeIds(db.lists, id));
+      db.lists = db.lists.filter((l) => !gone.has(l.id));
     });
   },
   async insertItems(items) {

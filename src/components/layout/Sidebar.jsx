@@ -1,12 +1,16 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import {
   Archive,
   ArchiveRestore,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Clock,
+  FolderInput,
   Layers,
   List,
+  ListPlus,
   MoreHorizontal,
   Plus,
   Star,
@@ -18,6 +22,14 @@ import { Logo, LogoMark } from "../ui/Logo";
 import { UserMenu } from "./UserMenu";
 import { accentHex } from "../../utils/appearance";
 import { getStats, listsForView, VIEWS } from "../../utils/listStats";
+import { buildListRows, listAncestorIds } from "../../utils/listTree";
+import { usePersistentState } from "../../hooks/usePersistentState";
+
+// Sub-lists show as a tree where the list of lists is the whole picture. The other views
+// (favorites, recent, shared, archived) are filters, so they stay flat.
+const TREE_VIEWS = ["all", "myLists"];
+const INDENT = 14; // px per level
+const MAX_INDENT_LEVELS = 6;
 
 const NAV = [
   { key: "all", icon: Layers },
@@ -39,6 +51,8 @@ export function Sidebar({
   onToggleFavorite,
   onArchive,
   onDelete,
+  onMove,
+  onCreateSub,
   collapsed,
   onToggleCollapse,
   mobile,
@@ -54,6 +68,27 @@ export function Sidebar({
     archived: lists.filter((l) => l.archived).length,
   };
   const slim = collapsed && !mobile;
+
+  // Which parents are unfolded (remembered on this device). Opening a list unfolds the
+  // lists above it once, so you can always see where it lives; you can fold them again.
+  const [unfolded, setUnfolded] = usePersistentState("ordly.sidebar.open", []);
+  const above = listAncestorIds(lists, activeId);
+  const aboveKey = `${activeId}|${above.join(",")}`;
+  const [seenKey, setSeenKey] = useState(null);
+  if (aboveKey !== seenKey) {
+    setSeenKey(aboveKey);
+    const add = above.filter((id) => !unfolded.includes(id));
+    if (add.length) setUnfolded((o) => [...new Set([...o, ...add])]);
+  }
+  const toggleOpen = (id) =>
+    setUnfolded((o) =>
+      o.includes(id) ? o.filter((x) => x !== id) : [...o, id],
+    );
+
+  const rows = buildListRows(visible, unfolded, {
+    flat: slim || !TREE_VIEWS.includes(view),
+  });
+  const treeShown = rows.some((r) => r.hasChildren);
 
   return (
     <nav aria-label="Lists" className="flex h-full flex-col">
@@ -153,17 +188,38 @@ export function Sidebar({
           )
         ) : (
           <ul className="space-y-0.5">
-            {visible.map((l) => {
+            {rows.map(({ list: l, depth, hasChildren, expanded }) => {
               const stats = getStats(l.items);
               const on = l.id === activeId;
               const isOwner = l.role === "owner";
+              const indent = Math.min(depth, MAX_INDENT_LEVELS) * INDENT;
               return (
                 <li key={l.id} data-anim="row" className="group relative">
+                  {!slim && hasChildren && (
+                    <button
+                      type="button"
+                      onClick={() => toggleOpen(l.id)}
+                      aria-expanded={expanded}
+                      aria-label={`${expanded ? "Collapse" : "Expand"} “${l.title}”`}
+                      style={{ left: 2 + indent }}
+                      className="absolute top-1/2 z-10 grid size-5 -translate-y-1/2 cursor-pointer place-items-center rounded text-faint transition-colors hover:bg-line/60 hover:text-fg"
+                    >
+                      <ChevronRight
+                        className={`size-3.5 transition-transform ${expanded ? "rotate-90" : ""}`}
+                        aria-hidden
+                      />
+                    </button>
+                  )}
                   <button
                     onClick={() => onSelect(l.id)}
                     aria-current={on ? "true" : undefined}
                     title={l.title}
-                    className={`flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg text-sm transition-colors ${slim ? "justify-center" : "px-2.5"} ${on ? "bg-raised text-fg" : "text-muted hover:bg-raised/70 hover:text-fg"}`}
+                    style={
+                      !slim && treeShown
+                        ? { paddingLeft: 22 + indent }
+                        : undefined
+                    }
+                    className={`flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg text-sm transition-colors ${slim ? "justify-center" : treeShown ? "pr-2.5" : "px-2.5"} ${on ? "bg-raised text-fg" : "text-muted hover:bg-raised/70 hover:text-fg"}`}
                   >
                     <span
                       className="grid size-5 shrink-0 place-items-center text-[15px]"
@@ -204,6 +260,20 @@ export function Sidebar({
                               : "Add to favorites",
                             icon: Star,
                             onClick: () => onToggleFavorite(l),
+                          },
+                          ...(l.archived
+                            ? []
+                            : [
+                                {
+                                  label: "New sub-list…",
+                                  icon: ListPlus,
+                                  onClick: () => onCreateSub(l),
+                                },
+                              ]),
+                          {
+                            label: "Move to…",
+                            icon: FolderInput,
+                            onClick: () => onMove(l),
                           },
                           {
                             label: l.archived
