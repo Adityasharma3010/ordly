@@ -5,6 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   CheckSquare,
   ChevronRight,
+  CalendarClock,
   CornerDownRight,
   GripVertical,
   IndentDecrease,
@@ -19,6 +20,10 @@ import {
 import { Checkbox } from "../ui/Checkbox";
 import { Menu } from "../ui/Menu";
 import { IconButton } from "../ui/Button";
+import { DueChip, PriorityChip, TagChips } from "../ui/MetaChips";
+import { MetaFields } from "../ui/MetaFields";
+import { Markdown } from "../notes/Markdown";
+import { NotesEditor } from "../notes/NotesEditor";
 
 // How far each level of sub-items is pushed in, and where the pushing stops so a very
 // deep branch can't walk off the screen.
@@ -30,6 +35,9 @@ export function ItemRow({
   nested,
   canEdit,
   dragEnabled,
+  listType = "checklist",
+  suggestions = [],
+  onTagPick,
   onPatch,
   onToggle,
   onDelete,
@@ -54,10 +62,10 @@ export function ItemRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
   const [showNotes, setShowNotes] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
   const [addingChild, setAddingChild] = useState(false);
   const [childText, setChildText] = useState("");
   const inputRef = useRef(null);
-  const notesRef = useRef(null);
   const childRef = useRef(null);
 
   useEffect(() => {
@@ -69,9 +77,6 @@ export function ItemRow({
   useEffect(() => {
     if (addingChild) childRef.current?.focus();
   }, [addingChild]);
-  useEffect(() => {
-    if (showNotes && !item.notes) notesRef.current?.focus();
-  }, [showNotes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = () => {
     if (!canEdit) return;
@@ -95,7 +100,7 @@ export function ItemRow({
 
   const submitChild = () => {
     if (!childText.trim()) return;
-    onAddChild({ text: childText, has_checkbox: true });
+    onAddChild({ text: childText, has_checkbox: listType !== "notes" });
     setChildText("");
     childRef.current?.focus();
   };
@@ -106,6 +111,11 @@ export function ItemRow({
       label: hasNotes ? "Edit notes" : "Add notes",
       icon: NotebookPen,
       onClick: () => setShowNotes(true),
+    },
+    {
+      label: "Due date, priority & tags…",
+      icon: CalendarClock,
+      onClick: () => setShowMeta(true),
     },
     {
       label: item.has_checkbox ? "Make plain text" : "Add checkbox",
@@ -206,6 +216,15 @@ export function ItemRow({
           </div>
         )}
 
+        {listType === "numbered" && (
+          <span
+            className="mt-px h-6 min-w-5 shrink-0 text-right text-[15px] leading-6 text-faint tabular-nums"
+            aria-label={`Number ${row.number}`}
+          >
+            {row.number}.
+          </span>
+        )}
+
         <div className="mt-px grid h-6 shrink-0 place-items-center">
           {item.has_checkbox ? (
             <Checkbox
@@ -278,39 +297,74 @@ export function ItemRow({
             </p>
           )}
 
+          {(item.due_date || item.priority > 0 || item.tags?.length > 0) && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <DueChip source={item} done={done} />
+              <PriorityChip priority={item.priority} />
+              <TagChips tags={item.tags} onPick={onTagPick} />
+            </div>
+          )}
+
+          {showMeta && canEdit && (
+            <div className="mt-2 rounded-lg border border-line bg-surface p-3">
+              <MetaFields
+                value={item}
+                onChange={(patch) => onPatch(patch)}
+                suggestions={suggestions}
+              />
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowMeta(false)}
+                  className="h-7 cursor-pointer rounded-lg border border-line px-3 text-xs text-muted transition-colors hover:border-line-strong hover:text-fg"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
           {(showNotes || hasNotes) && (
             <div className="mt-1">
               {showNotes && canEdit ? (
-                <textarea
-                  ref={notesRef}
-                  value={item.notes}
-                  rows={2}
-                  maxLength={10000}
-                  aria-label="Item notes"
-                  onChange={(e) =>
-                    onPatch({ notes: e.target.value }, { debounce: true })
-                  }
-                  onBlur={() => {
-                    if (!item.notes) setShowNotes(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.stopPropagation();
+                <div
+                  onBlur={(e) => {
+                    // Leaving the box with nothing written closes it again.
+                    if (
+                      !e.currentTarget.contains(e.relatedTarget) &&
+                      !item.notes
+                    )
                       setShowNotes(false);
-                    }
                   }}
-                  placeholder="Add details…"
-                  className="w-full resize-y rounded-md border border-line bg-raised px-2 py-1.5 text-[13px] text-muted placeholder:text-faint focus:border-accent focus:outline-none"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowNotes(true)}
-                  disabled={!canEdit}
-                  className="block w-full cursor-pointer text-left text-[13px] whitespace-pre-wrap text-faint hover:text-muted disabled:cursor-default"
                 >
-                  {item.notes}
-                </button>
+                  <NotesEditor
+                    value={item.notes}
+                    autoFocus
+                    onChange={(notes) => onPatch({ notes }, { debounce: true })}
+                    onDone={() => setShowNotes(false)}
+                  />
+                </div>
+              ) : (
+                <div className="group/notes relative">
+                  <div
+                    onClick={(e) => {
+                      // Clicking the text starts editing, clicking a link in it just opens it.
+                      if (canEdit && !e.target.closest("a")) setShowNotes(true);
+                    }}
+                    className={`text-faint ${canEdit ? "cursor-text hover:text-muted" : ""}`}
+                  >
+                    <Markdown text={item.notes} />
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNotes(true)}
+                      className="mt-1 h-6 cursor-pointer rounded-md px-1.5 text-[11px] text-faint transition-colors hover:bg-line/60 hover:text-fg focus-visible:opacity-100 sm:opacity-0 sm:group-focus-within/notes:opacity-100 sm:group-hover/notes:opacity-100"
+                    >
+                      Edit notes
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}

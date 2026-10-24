@@ -14,6 +14,7 @@ import { buildRows } from "../utils/tree";
 import { accentHex } from "../utils/appearance";
 import { Notice, Splash } from "./NotFound";
 import { timeAgo } from "../utils/format";
+import { Markdown } from "../components/notes/Markdown";
 
 const POLL_MS = 30000;
 
@@ -285,9 +286,7 @@ function SharedList({ token }) {
                     )}
                   </p>
                   {i.notes && (
-                    <p className="text-[13px] whitespace-pre-wrap text-faint">
-                      {i.notes}
-                    </p>
+                    <Markdown text={i.notes} className="text-faint" />
                   )}
                 </div>
               </li>

@@ -59,7 +59,10 @@ export function Menu({
     };
     // The panel is positioned in viewport coordinates, so close it if the page moves underneath it.
     const onMove = (e) => {
-      if (!listRef.current?.contains(e.target)) close(false);
+      // A window resize has no element as its target (that used to throw an error).
+      const inside =
+        e.target instanceof Node && listRef.current?.contains(e.target);
+      if (!inside) close(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);

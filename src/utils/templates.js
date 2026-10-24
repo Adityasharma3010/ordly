@@ -10,8 +10,9 @@ export const MAX_TEMPLATE_BYTES = 200_000;
 export const MAX_TEMPLATE_DEPTH = 60;
 
 // Turns a template's tree into the flat items a list stores, with fresh ids, each item
-// pointing at its parent, in the template's order, and nothing ticked.
-export function templateItems(template, listId, { uid, now }) {
+// pointing at its parent, in the template's order, and nothing ticked. `startAfter` is the
+// position of the last top-level item already in the list (when adding to an existing one).
+export function templateItems(template, listId, { uid, now, startAfter = 0 }) {
   const out = [];
   const stack = [{ nodes: template.items || [], parentId: null }];
   while (stack.length) {
@@ -24,7 +25,8 @@ export function templateItems(template, listId, { uid, now }) {
       notes: n.notes ?? "",
       has_checkbox: n.has_checkbox !== false,
       completed: false,
-      position: (i + 1) * POSITION_STEP,
+      // Top-level items can start after the ones a list already has.
+      position: (parentId === null ? startAfter : 0) + (i + 1) * POSITION_STEP,
       created_at: now,
       updated_at: now,
     }));

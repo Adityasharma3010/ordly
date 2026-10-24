@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
+import { collectTags } from "../utils/meta";
 import { Sidebar } from "../components/layout/Sidebar";
 import { Header } from "../components/layout/Header";
 import { WorkspaceHome } from "../components/home/WorkspaceHome";
@@ -56,6 +57,7 @@ export default function WorkspacePage() {
 
   const view = VIEWS[params.get("view")] ? params.get("view") : "all";
   const q = params.get("q") || "";
+  const tag = params.get("tag") || null;
   const list = listId ? ws.lists.find((l) => l.id === listId) : null;
 
   // One-time staggered entrance, once the first list is on screen.
@@ -68,7 +70,17 @@ export default function WorkspacePage() {
 
   const open = (id, query = "") =>
     navigate(
-      `/app/${id}?view=${view}${query ? `&q=${encodeURIComponent(query)}` : ""}`,
+      `/app/${id}?view=${view}${tag ? `&tag=${encodeURIComponent(tag)}` : ""}${query ? `&q=${encodeURIComponent(query)}` : ""}`,
+    );
+  const setTag = (t) =>
+    setParams(
+      (p) => {
+        const n = new URLSearchParams(p);
+        if (t) n.set("tag", t);
+        else n.delete("tag");
+        return n;
+      },
+      { replace: true },
     );
   const setView = (v) =>
     setParams(
@@ -81,9 +93,18 @@ export default function WorkspacePage() {
       { replace: true },
     );
 
-  const createList = (values) => {
-    const id = ws.createList({ ...values, parent_list_id: createParent });
+  // From the New list dialog: a blank list, or one that starts with a template's items.
+  const createList = (values, template) => {
+    const all = { ...values, parent_list_id: createParent };
+    const id = template
+      ? ws.createListFromTemplate(template, all)
+      : ws.createList(all);
     navigate(`/app/${id}?view=all`);
+    if (template)
+      toast({
+        tone: "success",
+        message: `Created “${values.title}” from “${template.title}”`,
+      });
   };
   // A new list that starts with a template's items; a name typed on the home screen wins.
   const startFromTemplate = (template, title) => {
@@ -131,6 +152,9 @@ export default function WorkspacePage() {
         onNavigate();
       }}
       onMove={listActions.askMove}
+      onMoveTo={listActions.moveTo}
+      tag={tag}
+      onTag={setTag}
       onHome={() => {
         navigate(`/app?view=${view}`);
         onNavigate();
@@ -245,6 +269,7 @@ export default function WorkspacePage() {
         }}
         onSubmit={createList}
         parentTitle={createParent ? ws.getList(createParent)?.title : null}
+        suggestions={collectTags(ws.lists)}
       />
       {list?.role === "owner" && (
         <ShareModal

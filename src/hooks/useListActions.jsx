@@ -108,6 +108,7 @@ export function useListActions() {
     archive,
     askDelete: setPending,
     askMove: setMoving,
+    moveTo: move,
     dialogs,
   };
 }

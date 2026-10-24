@@ -85,6 +85,8 @@ export function TemplatePicker({
   userTemplates,
   onPick,
   onDelete,
+  title = "Start from a template",
+  description = "Pick one to get a list with items already in it. You can change anything afterwards.",
 }) {
   const [deleting, setDeleting] = useState(null);
   return (
@@ -93,8 +95,8 @@ export function TemplatePicker({
         open={open}
         onClose={onClose}
         size="lg"
-        title="Start from a template"
-        description="Pick one to get a list with items already in it. You can change anything afterwards."
+        title={title}
+        description={description}
       >
         <div className="mt-4 max-h-[60vh] space-y-6 overflow-y-auto pr-1">
           {userTemplates.length > 0 && (

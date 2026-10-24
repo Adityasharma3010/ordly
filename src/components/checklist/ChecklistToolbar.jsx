@@ -4,6 +4,7 @@ import {
   Check,
   CheckCheck,
   ListX,
+  Tag,
   RotateCcw,
   Search,
   X,
@@ -11,11 +12,18 @@ import {
 import { Menu } from "../ui/Menu";
 import { Button } from "../ui/Button";
 
-const FILTER_LABELS = { all: "All", active: "Active", completed: "Completed" };
+const FILTER_LABELS = {
+  all: "All",
+  active: "Active",
+  completed: "Completed",
+  due: "Due soon",
+};
 const SORT_LABELS = {
   custom: "Custom order",
   created: "Newest first",
   status: "Status",
+  due: "Due date",
+  priority: "Priority",
 };
 
 export function ChecklistToolbar({
@@ -29,12 +37,22 @@ export function ChecklistToolbar({
   canEdit,
   onClearCompleted,
   onAll,
+  dueCount = 0,
+  tags = [],
+  tag = null,
+  setTag,
+  notes = false,
 }) {
   const counts = {
     all: stats.totalItems,
     active: stats.remaining,
     completed: stats.done,
+    due: dueCount,
   };
+  // A Notes list has nothing to tick off, so Active / Completed would always be empty.
+  const filterKeys = Object.keys(FILTER_LABELS).filter(
+    (k) => !notes || k === "all" || k === "due",
+  );
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div
@@ -42,7 +60,7 @@ export function ChecklistToolbar({
         aria-label="Filter items"
         className="relative flex rounded-lg border border-line bg-surface p-0.5"
       >
-        {Object.keys(FILTER_LABELS).map((key) => {
+        {filterKeys.map((key) => {
           const on = filter === key;
           return (
             <button
@@ -100,6 +118,43 @@ export function ChecklistToolbar({
       </div>
 
       <div className="ml-auto flex items-center gap-1">
+        {tags.length > 0 && (
+          <Menu
+            width="w-48"
+            trigger={({ ref, props }) => (
+              <Button
+                ref={ref}
+                size="sm"
+                variant="ghost"
+                aria-label={tag ? `Tag filter: #${tag}` : "Filter by tag"}
+                {...props}
+              >
+                <Tag className="size-3.5" aria-hidden />
+                {tag ? `#${tag}` : "Tags"}
+              </Button>
+            )}
+            items={[
+              ...(tag
+                ? [
+                    {
+                      label: "Show all tags",
+                      icon: X,
+                      onClick: () => setTag(null),
+                    },
+                    { divider: true },
+                  ]
+                : []),
+              ...tags.map((t) => ({
+                label: `#${t}`,
+                icon:
+                  tag && t.toLowerCase() === tag.toLowerCase()
+                    ? Check
+                    : undefined,
+                onClick: () => setTag(t),
+              })),
+            ]}
+          />
+        )}
         <Menu
           width="w-48"
           trigger={({ ref, props }) => (

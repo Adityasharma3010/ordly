@@ -1,4 +1,6 @@
 import { sortByPosition } from "./position";
+import { dueSortKey, dueState, needsAttention } from "./due";
+import { hasTag } from "./meta";
 
 // Items can sit under other items of the same list, at any depth. An item points at its
 // parent with `parent_id` (null/missing = top level). Everything here works on the flat
@@ -115,10 +117,17 @@ export function listProgress(items) {
  */
 export function buildRows(
   items,
-  { filter = "all", sort = "custom", query = "", collapsed = [] } = {},
+  {
+    filter = "all",
+    sort = "custom",
+    query = "",
+    tag = null,
+    collapsed = [],
+    now = new Date(),
+  } = {},
 ) {
   const q = query.trim().toLowerCase();
-  const filtering = filter !== "all" || !!q;
+  const filtering = filter !== "all" || !!q || !!tag;
   const groups = childrenByParent(items);
   const roll = computeRollup(items);
   const folded = new Set(collapsed);
@@ -127,6 +136,12 @@ export function buildRows(
     const completed = roll.get(i.id).completed;
     if (filter === "active" && !(i.has_checkbox && !completed)) return false;
     if (filter === "completed" && !(i.has_checkbox && completed)) return false;
+    if (
+      filter === "due" &&
+      !(!completed && needsAttention(dueState(i, { now })))
+    )
+      return false;
+    if (tag && !hasTag(i.tags, tag)) return false;
     if (
       q &&
       !(
@@ -158,6 +173,16 @@ export function buildRows(
       return [...list].sort(
         (a, b) => rank(a) - rank(b) || a.position - b.position,
       );
+    if (sort === "due")
+      return [...list].sort(
+        (a, b) =>
+          dueSortKey(a).localeCompare(dueSortKey(b)) || a.position - b.position,
+      );
+    if (sort === "priority")
+      return [...list].sort(
+        (a, b) =>
+          (b.priority || 0) - (a.priority || 0) || a.position - b.position,
+      );
     return list; // already in position order
   };
 
@@ -187,6 +212,8 @@ export function buildRows(
           ? { done: r.done, total: r.total }
           : null,
       completed: r.completed,
+      // 1-based place among its siblings in the list's own order (for Numbered lists).
+      number: place.get(item.id) + 1,
       canIndent: place.get(item.id) > 0,
       canOutdent: depth > 0,
     });

@@ -3,12 +3,17 @@ import { CheckSquare, Plus, Square } from "lucide-react";
 import { usePersistentState } from "../../hooks/usePersistentState";
 
 // Type, press Enter, keep typing. The input never loses focus after adding.
-export function ItemComposer({ onAdd, disabled }) {
+export function ItemComposer({ onAdd, disabled, plainByDefault = false }) {
   const [text, setText] = useState("");
-  const [withBox, setWithBox] = usePersistentState(
+  const [savedBox, setSavedBox] = usePersistentState(
     "ordly.composer.checkbox",
     true,
   );
+  // A Notes list starts out plain text; flipping the switch there only lasts while it is open
+  // and doesn't change the choice you made for other lists.
+  const [override, setOverride] = useState(null);
+  const withBox = override ?? (plainByDefault ? false : savedBox);
+  const setWithBox = (v) => (plainByDefault ? setOverride(v) : setSavedBox(v));
   const inputRef = useRef(null);
 
   const submit = () => {

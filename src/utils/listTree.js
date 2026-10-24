@@ -105,3 +105,21 @@ export function moveTargets(lists, id) {
   const all = pool.map((l) => l.id);
   return buildListRows(pool, all);
 }
+
+export const TOP_LEVEL_DROP = "__top-level__";
+
+// What dropping list `activeId` on `overId` (a list, or the top-level zone) should do:
+// { parentId } when it is a real move, null when nothing should happen. Only your own lists can
+// be moved, and only into your own, un-archived lists (never into themselves or what's inside).
+export function resolveDrop(lists, activeId, overId) {
+  const active = lists.find((l) => l.id === activeId);
+  if (!active || active.role !== "owner" || active.archived) return null;
+  const parentId = overId === TOP_LEVEL_DROP ? null : overId;
+  if (parentId !== null) {
+    const target = lists.find((l) => l.id === parentId);
+    if (!target || target.role !== "owner" || target.archived) return null;
+  }
+  if (!canMoveList(lists, activeId, parentId)) return null;
+  if ((active.parent_list_id ?? null) === parentId) return null;
+  return { parentId };
+}

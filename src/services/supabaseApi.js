@@ -113,7 +113,8 @@ export const supabaseApi = {
   },
   async createList(list) {
     const { id, title, description, icon, color, favorite, archived } = list;
-    const { parent_list_id } = list;
+    const { parent_list_id, list_type, due_date, due_time, priority, tags } =
+      list;
     const { error } = await supabase.from("lists").upsert(
       {
         id,
@@ -125,6 +126,11 @@ export const supabaseApi = {
         archived,
         // Only sent for sub-lists, so top-level lists keep saving even before sub-lists.sql is run.
         ...(parent_list_id ? { parent_list_id } : {}),
+        // Likewise only sent when set, so plain lists save even before enhanced-lists.sql is run.
+        ...(list_type && list_type !== "checklist" ? { list_type } : {}),
+        ...(due_date ? { due_date, due_time: due_time || null } : {}),
+        ...(priority ? { priority } : {}),
+        ...(tags?.length ? { tags } : {}),
       },
       { onConflict: "id", ignoreDuplicates: true },
     );
@@ -156,6 +162,10 @@ export const supabaseApi = {
         completed,
         position,
         parent_id,
+        due_date,
+        due_time,
+        priority,
+        tags,
       }) => ({
         id,
         list_id,
@@ -166,6 +176,9 @@ export const supabaseApi = {
         position,
         // Only sent for sub-items, so top-level items keep saving even before nest-items.sql is run.
         ...(parent_id ? { parent_id } : {}),
+        ...(due_date ? { due_date, due_time: due_time || null } : {}),
+        ...(priority ? { priority } : {}),
+        ...(tags?.length ? { tags } : {}),
       }),
     );
     // Re-sending the same client-generated id is a no-op, so retries never duplicate.

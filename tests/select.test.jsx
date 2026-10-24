@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Select } from "../src/components/ui/Select";
+import { Menu } from "../src/components/ui/Menu";
 
 const OPTIONS = [
   { value: "a", label: "Alpha" },
@@ -100,5 +101,43 @@ describe("Select", () => {
     const { user, trigger } = setup({ disabled: true });
     await user.click(trigger);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("floating lists and window resizing", () => {
+  it("a Select closes cleanly when the window is resized (no error)", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await closed();
+  });
+
+  it("a Menu closes cleanly when the window is resized (no error)", async () => {
+    const user = userEvent.setup();
+    render(
+      <Menu
+        trigger={({ ref, props }) => (
+          <button ref={ref} {...props}>
+            Open menu
+          </button>
+        )}
+        items={[{ label: "One", onClick: () => {} }]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open menu" }));
+    expect(
+      await screen.findByRole("menuitem", { name: "One" }),
+    ).toBeInTheDocument();
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menuitem", { name: "One" }),
+      ).not.toBeInTheDocument(),
+    );
   });
 });

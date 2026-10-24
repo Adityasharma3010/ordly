@@ -134,7 +134,9 @@ const count = (label) =>
 const rowTitles = () => {
   const ul = nav().querySelectorAll("ul")[1]; // 0 = view links, 1 = lists in the current view
   return ul
-    ? [...ul.querySelectorAll("button[title]")].map((b) => b.getAttribute("title"))
+    ? [...ul.querySelectorAll("button[title]")].map((b) =>
+        b.getAttribute("title"),
+      )
     : [];
 };
 // Resolves once the workspace is loaded AND settled: wait until either a list is open or the
@@ -193,6 +195,7 @@ describe("My Lists navigation", () => {
       "All lists",
       "My Lists",
       "Favorites",
+      "Due soon",
       "Recently updated",
       "Shared with me",
       "Archived",

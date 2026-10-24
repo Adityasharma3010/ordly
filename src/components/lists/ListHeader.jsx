@@ -3,8 +3,10 @@ import {
   Archive,
   ArchiveRestore,
   BookmarkPlus,
+  ChevronRight,
   Copy,
   FolderInput,
+  LayoutTemplate,
   MoreHorizontal,
   Pencil,
   Share2,
@@ -14,6 +16,8 @@ import {
 import { Button, IconButton } from "../ui/Button";
 import { Menu } from "../ui/Menu";
 import { timeAgo } from "../../utils/format";
+import { DueChip, PriorityChip, TagChips } from "../ui/MetaChips";
+import { LIST_TYPES, listTypeOf } from "../../utils/meta";
 
 export function ListHeader({
   list,
@@ -26,7 +30,11 @@ export function ListHeader({
   onSaveTemplate,
   onArchive,
   onMove,
+  onAddTemplate,
   onDelete,
+  crumbs = [],
+  onCrumb,
+  done = false,
 }) {
   const isOwner = list.role === "owner";
   const canEdit = list.role !== "viewer";
@@ -48,6 +56,12 @@ export function ListHeader({
       disabled: !isOwner,
     },
     { label: "Duplicate list", icon: Copy, onClick: onDuplicate },
+    {
+      label: "Add items from a template…",
+      icon: LayoutTemplate,
+      onClick: onAddTemplate,
+      disabled: !canEdit,
+    },
     { label: "Save as template…", icon: BookmarkPlus, onClick: onSaveTemplate },
     {
       label: "Move to…",
@@ -73,6 +87,26 @@ export function ListHeader({
 
   return (
     <header data-anim="block" className="space-y-2">
+      {crumbs.length > 0 && (
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-0.5 text-[13px] text-muted"
+        >
+          {crumbs.map((c) => (
+            <span key={c.id} className="inline-flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => onCrumb(c.id)}
+                className="max-w-48 cursor-pointer truncate rounded-md px-1.5 py-0.5 transition-colors hover:bg-raised hover:text-fg"
+              >
+                {c.icon && <span className="mr-1">{c.icon}</span>}
+                {c.title}
+              </button>
+              <ChevronRight className="size-3.5 text-faint" aria-hidden />
+            </span>
+          ))}
+        </nav>
+      )}
       <div className="flex items-start gap-3">
         <button
           type="button"
@@ -166,6 +200,22 @@ export function ListHeader({
           />
         </div>
       </div>
+
+      {(listTypeOf(list) !== "checklist" ||
+        list.due_date ||
+        list.priority > 0 ||
+        (list.tags?.length ?? 0) > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 pl-15">
+          {listTypeOf(list) !== "checklist" && (
+            <span className="inline-flex h-5 items-center rounded-full border border-line px-2 text-[11px] text-muted">
+              {LIST_TYPES[listTypeOf(list)].label}
+            </span>
+          )}
+          <DueChip source={list} done={done} />
+          <PriorityChip priority={list.priority} />
+          <TagChips tags={list.tags} />
+        </div>
+      )}
 
       <p className="pl-15 text-xs text-faint">
         {list.role === "owner"

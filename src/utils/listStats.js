@@ -1,5 +1,7 @@
 import { sortByPosition } from "./position";
-import { buildRows, listProgress } from "./tree";
+import { buildRows, computeRollup, listProgress } from "./tree";
+import { dueSortKey, dueState, needsAttention } from "./due";
+import { hasTag } from "./meta";
 
 // Only items that have a checkbox count toward progress. Plain-text items never do.
 // With sub-items, the tasks at the bottom of each branch are what count: a task that has
@@ -16,8 +18,33 @@ export function getStats(items) {
   };
 }
 
-export const FILTERS = ["all", "active", "completed"];
-export const SORTS = ["custom", "created", "status"];
+export const FILTERS = ["all", "active", "completed", "due"];
+export const SORTS = ["custom", "created", "status", "due", "priority"];
+
+// The most pressing due date inside a list that is overdue, due today or due in the next 7
+// days: the list's own, or an unfinished item's. null when nothing needs attention.
+export function listAttention(list, now = new Date()) {
+  const roll = computeRollup(list.items);
+  let best = null;
+  const consider = (src, done) => {
+    const state = dueState(src, { now, done });
+    if (!needsAttention(state)) return;
+    const key = dueSortKey(src);
+    if (!best || key < best.key)
+      best = { key, state, due_date: src.due_date, due_time: src.due_time };
+  };
+  consider(list, getStats(list.items).isComplete);
+  for (const it of list.items) consider(it, roll.get(it.id).completed);
+  return best;
+}
+
+// Lists that have `tag` on the list itself or on any of its items.
+export const listsWithTag = (lists, tag) =>
+  tag
+    ? lists.filter(
+        (l) => hasTag(l.tags, tag) || l.items.some((i) => hasTag(i.tags, tag)),
+      )
+    : lists;
 
 // The items in display order (see buildRows for the version with depth and folding).
 export function filterAndSortItems(items, opts = {}) {
@@ -32,8 +59,13 @@ export function searchWorkspace(lists, query) {
   for (const list of lists) {
     const titleHit = list.title.toLowerCase().includes(q);
     const descHit = list.description.toLowerCase().includes(q);
-    const itemHits = list.items.filter((i) => i.text.toLowerCase().includes(q));
-    if (titleHit || descHit || itemHits.length) {
+    const tagHit = (list.tags || []).some((t) => t.toLowerCase().includes(q));
+    const itemHits = list.items.filter(
+      (i) =>
+        i.text.toLowerCase().includes(q) ||
+        (i.tags || []).some((t) => t.toLowerCase().includes(q)),
+    );
+    if (titleHit || descHit || tagHit || itemHits.length) {
       results.push({
         list,
         titleHit,
@@ -50,14 +82,21 @@ export const VIEWS = {
   all: "All lists",
   myLists: "My Lists",
   favorites: "Favorites",
+  dueSoon: "Due soon",
   recent: "Recently updated",
   shared: "Shared with me",
   archived: "Archived",
 };
 
-export function listsForView(lists, view) {
+export function listsForView(lists, view, now = new Date()) {
   const active = lists.filter((l) => !l.archived);
   switch (view) {
+    case "dueSoon":
+      return active
+        .map((l) => ({ l, a: listAttention(l, now) }))
+        .filter((x) => x.a)
+        .sort((x, y) => x.a.key.localeCompare(y.a.key))
+        .map((x) => x.l);
     case "myLists":
       return active.filter((l) => l.role === "owner");
     case "favorites":

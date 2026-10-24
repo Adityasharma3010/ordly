@@ -5,6 +5,7 @@ import { gsap } from "gsap";
 const reducedMotion = () =>
   typeof window !== "undefined" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+export const prefersReducedMotion = reducedMotion;
 
 /* ------------------------------------------------------------------ *
  * 1. Sign-in page: headline → copy → features → preview card → ticks

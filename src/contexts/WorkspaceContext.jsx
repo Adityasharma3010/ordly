@@ -257,6 +257,11 @@ export function WorkspaceProvider({ children }) {
       icon = "",
       color = "amber",
       parent_list_id = null,
+      list_type = "checklist",
+      due_date = null,
+      due_time = null,
+      priority = 0,
+      tags = [],
     } = {}) => {
       const now = nowIso();
       // A sub-list can only go inside a list of yours.
@@ -265,6 +270,11 @@ export function WorkspaceProvider({ children }) {
         id: uid(),
         owner_id: userId,
         parent_list_id: parent?.role === "owner" ? parent.id : null,
+        list_type,
+        due_date,
+        due_time,
+        priority,
+        tags,
         title: title.trim() || "Untitled list",
         description,
         icon,
@@ -294,22 +304,32 @@ export function WorkspaceProvider({ children }) {
   );
 
   // A new list that starts with a template's items (nested as the template nests them).
-  // `title` replaces the template's own name, for when you typed one.
+  // Anything in `v` (name, icon, colour, type, due date…) replaces what the template says;
+  // the template only fills in what you left out.
   const createListFromTemplate = useCallback(
-    (template, { title } = {}) => {
+    (template, v = {}) => {
       const now = nowIso();
       const id = uid();
+      const parent = v.parent_list_id ? getList(v.parent_list_id) : null;
       const list = {
         id,
         owner_id: userId,
-        parent_list_id: null,
-        title: (title?.trim() || template.title || "Untitled list").slice(
+        parent_list_id: parent?.role === "owner" ? parent.id : null,
+        list_type: v.list_type ?? "checklist",
+        due_date: v.due_date ?? null,
+        due_time: v.due_time ?? null,
+        priority: v.priority ?? 0,
+        tags: v.tags ?? [],
+        title: (v.title?.trim() || template.title || "Untitled list").slice(
           0,
           200,
         ),
-        description: template.description || "",
-        icon: template.icon || "",
-        color: template.color || "amber",
+        description: (v.description ?? template.description ?? "").slice(
+          0,
+          2000,
+        ),
+        icon: v.icon ?? template.icon ?? "",
+        color: v.color || template.color || "amber",
         favorite: false,
         archived: false,
         created_at: now,
@@ -317,12 +337,52 @@ export function WorkspaceProvider({ children }) {
         role: "owner",
         items: templateItems(template, id, { uid, now }),
       };
+      if (list.list_type === "notes")
+        list.items = list.items.map((i) => ({ ...i, has_checkbox: false }));
       dispatch({ type: "addList", list });
       persist(() => api.createList(list));
       if (list.items.length) persist(() => api.insertItems(list.items));
       return id;
     },
-    [dispatch, userId, persist],
+    [dispatch, userId, persist, getList],
+  );
+
+  // Adds a template's items to the END of a list you can edit (its name and settings stay).
+  // Shows an Undo toast. Returns how many items were added.
+  const addTemplateToList = useCallback(
+    (listId, template) => {
+      const list = getList(listId);
+      if (!list || list.role === "viewer") return 0;
+      const now = nowIso();
+      const last = siblingsOf(list.items, null).reduce(
+        (m, i) => Math.max(m, i.position),
+        0,
+      );
+      let items = templateItems(template, listId, {
+        uid,
+        now,
+        startAfter: last,
+      });
+      if (list.list_type === "notes")
+        items = items.map((i) => ({ ...i, has_checkbox: false }));
+      if (!items.length) return 0;
+      dispatch({ type: "addItems", listId, items });
+      persist(() => api.insertItems(items));
+      const ids = items.map((i) => i.id);
+      toast({
+        tone: "success",
+        message: `Added ${plural(items.length, "item")} from “${template.title}”`,
+        action: {
+          label: "Undo",
+          onClick: () => {
+            dispatch({ type: "removeItems", listId, ids });
+            persist(() => api.deleteItems(ids));
+          },
+        },
+      });
+      return items.length;
+    },
+    [dispatch, getList, persist, toast],
   );
 
   // Keeps a list's items as a template. Returns { ok: true } or { ok: false, reason }.
@@ -375,6 +435,11 @@ export function WorkspaceProvider({ children }) {
         description: src.description,
         icon: src.icon,
         color: src.color,
+        list_type: src.list_type ?? "checklist",
+        due_date: src.due_date ?? null,
+        due_time: src.due_time ?? null,
+        priority: src.priority ?? 0,
+        tags: src.tags ?? [],
         favorite: false,
         archived: false,
         created_at: now,
@@ -477,6 +542,10 @@ export function WorkspaceProvider({ children }) {
         completed: false,
         position: positionAtEnd(siblingsOf(list.items, parent_id)),
         parent_id,
+        due_date: null,
+        due_time: null,
+        priority: 0,
+        tags: [],
         created_at: now,
         updated_at: now,
       };
@@ -697,6 +766,7 @@ export function WorkspaceProvider({ children }) {
       getList,
       createList,
       createListFromTemplate,
+      addTemplateToList,
       saveTemplate,
       deleteTemplate,
       updateList,
@@ -722,6 +792,7 @@ export function WorkspaceProvider({ children }) {
       getList,
       createList,
       createListFromTemplate,
+      addTemplateToList,
       saveTemplate,
       deleteTemplate,
       updateList,

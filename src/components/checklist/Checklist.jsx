@@ -21,6 +21,9 @@ export function Checklist({
   rows,
   canEdit,
   dragEnabled,
+  listType,
+  suggestions,
+  onTagPick,
   onPatch,
   onToggle,
   onDelete,
@@ -92,6 +95,9 @@ export function Checklist({
                 nested={nested}
                 canEdit={canEdit}
                 dragEnabled={dragEnabled && canEdit}
+                listType={listType}
+                suggestions={suggestions}
+                onTagPick={onTagPick}
                 onPatch={(patch, opts) => onPatch(row.item.id, patch, opts)}
                 onToggle={(completed) => onToggle(row.item.id, completed)}
                 onDelete={() => onDelete(row.item.id)}

@@ -14,6 +14,15 @@ create table public.profiles (
   created_at   timestamptz not null default now()
 );
 
+-- Tags are a list of short words. At most 20 per list/item, each 1–40 characters.
+create or replace function public.tags_ok(t text[])
+returns boolean language sql immutable as $$
+  select coalesce(cardinality(t), 0) <= 20
+     and not exists (
+       select 1 from unnest(t) as x where x is null or char_length(x) not between 1 and 40
+     )
+$$;
+
 create table public.lists (
   id          uuid primary key default gen_random_uuid(),
   owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
@@ -26,6 +35,13 @@ create table public.lists (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   parent_list_id uuid,
+  -- Enhanced lists: a type, a due date (+ optional time), a priority (0 none … 3 high) and tags.
+  list_type   text not null default 'checklist' constraint lists_list_type_check
+              check (list_type in ('checklist', 'notes', 'numbered')),
+  due_date    date,
+  due_time    time,
+  priority    smallint not null default 0 constraint lists_priority_check check (priority between 0 and 3),
+  tags        text[] not null default '{}' constraint lists_tags_check check (public.tags_ok(tags)),
   -- A list can sit inside another list of the SAME owner (sub-lists, any depth).
   constraint lists_id_owner_key unique (id, owner_id),
   constraint lists_parent_fk foreign key (parent_list_id, owner_id)
@@ -45,6 +61,10 @@ create table public.list_items (
   -- Sub-items: the item this one sits under (null = top level). The composite key makes
   -- the parent live in the SAME list; deleting a parent deletes everything under it.
   parent_id     uuid,
+  due_date      date,
+  due_time      time,
+  priority      smallint not null default 0 constraint list_items_priority_check check (priority between 0 and 3),
+  tags          text[] not null default '{}' constraint list_items_tags_check check (public.tags_ok(tags)),
   constraint list_items_id_list_key unique (id, list_id),
   constraint list_items_parent_fk foreign key (parent_id, list_id)
     references public.list_items (id, list_id) on delete cascade
