@@ -97,6 +97,40 @@ describe("the invite email text", () => {
     ).toContain("view it");
   });
 
+  it("shows the role, how to join, a copyable link and a dark-mode version", () => {
+    const base = {
+      inviter: "Aditya",
+      listTitle: "Trip plan",
+      invitee: "pal@example.com",
+      appUrl: "https://ordly-lists.vercel.app",
+    };
+    const editor = buildInviteEmail({ ...base, role: "editor" });
+    const viewer = buildInviteEmail({ ...base, role: "viewer" });
+    expect(editor.html).toContain("Can edit");
+    expect(viewer.html).toContain("Can view");
+    expect(viewer.html).not.toContain("Can edit");
+    expect(editor.html).toContain("How to join");
+    expect(editor.html).toContain("Shared with me");
+    expect(editor.html).toContain("Open Ordly");
+    expect(editor.html).toContain(
+      '<img src="https://ordly-lists.vercel.app/email-logo.png"',
+    );
+    // the plain link is printed too, for when the button doesn't work
+    expect(
+      editor.html.match(/ordly-lists\.vercel\.app\/login/g).length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(editor.html).toContain("prefers-color-scheme:dark");
+    expect(editor.html).toContain('name="color-scheme"');
+    // the avatar shows the inviter's first letter, and the hidden preview line names the list
+    expect(editor.html).toContain(">A</div>");
+    expect(editor.html).toContain("shared “Trip plan” with you");
+    expect(editor.text).toContain("How to join:");
+    expect(editor.text).toContain("Shared with me");
+    expect(
+      buildInviteEmail({ ...base, inviter: "  ", role: "viewer" }).html,
+    ).toContain("Someone");
+  });
+
   it("nothing a person typed can inject HTML into the email", () => {
     const evil = `<script>alert(1)</script><img src=x onerror=alert(1)>"'&`;
     const m = buildInviteEmail({
@@ -107,7 +141,9 @@ describe("the invite email text", () => {
       appUrl: "https://a.b",
     });
     expect(m.html).not.toContain("<script");
-    expect(m.html).not.toContain("<img");
+    expect(m.html).not.toContain("<img src=x");
+    // the only image is our own logo
+    expect(m.html.match(/<img/g)).toHaveLength(1);
     expect(m.html).not.toContain("onerror=alert(1)>");
     expect(m.html).toContain("&lt;script&gt;");
     expect(esc(`<>&"'`)).toBe("&lt;&gt;&amp;&quot;&#39;");
