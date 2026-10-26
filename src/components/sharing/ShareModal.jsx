@@ -4,11 +4,13 @@ import {
   Check,
   Clock,
   Copy,
+  ExternalLink,
   Globe,
   Link2Off,
   Lock,
   Mail,
   RefreshCw,
+  Send,
   UserMinus,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
@@ -21,6 +23,7 @@ import { api } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import { plural, timeAgo } from "../../utils/format";
+import { inviteErrorText, inviteMailto } from "../../utils/invite";
 
 const EXPIRY = [
   { key: "never", label: "Never expires", days: null },
@@ -200,15 +203,52 @@ export function ShareModal({ open, onClose, list }) {
     if (addr === (user?.email || "").toLowerCase())
       return setEmailError("That’s your own email. You already own this list.");
     setEmailError("");
+    const canEmail = api.capabilities.inviteEmail;
     await run(
       "invite",
       async () => {
-        await api.inviteByEmail(list.id, addr, inviteRole);
+        const id = await api.inviteByEmail(list.id, addr, inviteRole);
         setEmail("");
+        if (!canEmail || !id) return;
+        // Email it straight away. If that can't be done the invite is still saved, and the
+        // person can use the email-app button on its row instead.
+        try {
+          await api.sendInviteEmail(id);
+          toast({ tone: "success", message: `Invite emailed to ${addr}` });
+        } catch (e) {
+          toast({
+            tone: "info",
+            duration: 9000,
+            message: `Added ${addr}, but the email wasn’t sent. ${inviteErrorText(e)} Use the “open in your email app” button next to their name.`,
+          });
+        }
       },
-      `Added ${addr}. No email was sent, so tell them to sign in to Ordly with this address.`,
+      canEmail
+        ? null
+        : `Added ${addr}. No email was sent, so tell them to sign in to Ordly with this address.`,
     );
   };
+  const sendEmail = (inv) =>
+    run(
+      `i-${inv.id}`,
+      async () => {
+        try {
+          await api.sendInviteEmail(inv.id);
+          toast({ tone: "success", message: `Invite emailed to ${inv.email}` });
+        } catch (e) {
+          toast({ tone: "error", message: inviteErrorText(e) });
+        }
+      },
+      null,
+    );
+  const mailtoFor = (inv) =>
+    inviteMailto({
+      email: inv.email,
+      listTitle: list.title,
+      role: inv.role,
+      inviterName: user?.name || "",
+      appUrl: window.location.origin,
+    }).href;
   const roleText = (role) => (role === "editor" ? "edit" : "view");
   const changeRole = (p, role) =>
     run(
@@ -365,9 +405,9 @@ export function ShareModal({ open, onClose, list }) {
                 </p>
               ) : (
                 <p id="share-email-hint" className="mt-1.5 text-xs text-faint">
-                  Ordly doesn’t send emails, so tell them yourself. Once they
-                  sign in with this address, the list appears under Shared with
-                  me.
+                  {api.capabilities.inviteEmail
+                    ? "We email them a link. Once they sign in with this address, the list appears under Shared with me."
+                    : "Ordly doesn’t send emails, so tell them yourself. Once they sign in with this address, the list appears under Shared with me."}
                 </p>
               )}
             </form>
@@ -429,11 +469,20 @@ export function ShareModal({ open, onClose, list }) {
                     <span className="grid size-7 place-items-center rounded-full bg-raised text-muted">
                       <Mail className="size-3.5" aria-hidden />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm">
-                      {inv.email}
-                      <span className="ml-2 rounded bg-raised px-1.5 py-0.5 text-xs text-muted">
-                        Pending
+                    <span className="min-w-0 flex-1 text-sm">
+                      <span className="block truncate">
+                        {inv.email}
+                        <span className="ml-2 rounded bg-raised px-1.5 py-0.5 text-xs text-muted">
+                          Pending
+                        </span>
                       </span>
+                      {api.capabilities.inviteEmail && (
+                        <span className="block text-xs text-faint">
+                          {inv.emailed_at
+                            ? `Emailed ${timeAgo(inv.emailed_at)}`
+                            : "Not emailed yet"}
+                        </span>
+                      )}
                     </span>
                     <RoleSelect
                       label={`Access for ${inv.email}`}
@@ -441,6 +490,26 @@ export function ShareModal({ open, onClose, list }) {
                       disabled={busy === `i-${inv.id}`}
                       onChange={(r) => changeInviteRole(inv, r)}
                     />
+                    {api.capabilities.inviteEmail && (
+                      <IconButton
+                        size="sm"
+                        label={`${inv.emailed_at ? "Email again to" : "Email invite to"} ${inv.email}`}
+                        disabled={busy === `i-${inv.id}`}
+                        onClick={() => sendEmail(inv)}
+                      >
+                        <Send className="size-4" />
+                      </IconButton>
+                    )}
+                    {api.capabilities.inviteEmail && (
+                      <a
+                        href={mailtoFor(inv)}
+                        aria-label={`Open your email app to invite ${inv.email}`}
+                        title="Open in your email app"
+                        className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition duration-150 hover:bg-raised hover:text-fg active:scale-95"
+                      >
+                        <ExternalLink className="size-4" aria-hidden />
+                      </a>
+                    )}
                     <IconButton
                       size="sm"
                       label={`Remove invite for ${inv.email}`}

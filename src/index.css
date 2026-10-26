@@ -138,8 +138,59 @@ body {
 .text-accent-ink {
   color: var(--c-accent);
 }
+.dark .text-accent-ink {
+  color: var(--c-ink, var(--c-accent));
+}
 :root[data-theme="light"] .text-accent-ink {
-  color: color-mix(in srgb, var(--c-accent) 52%, #2a1800);
+  color: var(--c-ink, color-mix(in srgb, var(--c-accent) 52%, #2a1800));
+}
+
+/* A custom accent colour picked with the colour picker (Settings, or one list's colour). The
+   page sets --c-accent and --c-on-accent (the text colour that reads on it); --c-ink is the same
+   colour made lighter on the dark theme / darker on the light one, for use as text. */
+.dark .accent-custom,
+.dark.accent-custom {
+  --c-ink: color-mix(in srgb, var(--c-accent) 62%, white);
+}
+:root[data-theme="light"] .accent-custom,
+:root[data-theme="light"].accent-custom {
+  --c-ink: color-mix(in srgb, var(--c-accent) 62%, black);
+}
+
+/* The hue slider of the colour picker: a rainbow track with a round handle. */
+.hue-slider {
+  appearance: none;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #f00,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00
+  );
+}
+.hue-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid rgb(0 0 0 / 0.35);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  cursor: grab;
+}
+.hue-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  border: 2px solid rgb(0 0 0 / 0.35);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+  cursor: grab;
 }
 
 /* Notes: the same look for a finished note (.notes-md) and the rich editor (.notes-rich). */

@@ -4,12 +4,14 @@ import {
   ChevronDown,
   ListChecks,
   ListOrdered,
+  Pipette,
   StickyNote,
 } from "lucide-react";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Collapse } from "../ui/Collapse";
 import { Textarea } from "../ui/Field";
+import { ColorField } from "../ui/ColorField";
 import { MetaFields } from "../ui/MetaFields";
 import { useWorkspace } from "../../contexts/WorkspaceContext";
 import { STARTER_TEMPLATES } from "../../data/starterTemplates";
@@ -19,6 +21,7 @@ import {
   accentHex,
   EMOJI_CHOICES,
 } from "../../utils/appearance";
+import { isHex, readableOn } from "../../utils/color";
 import { formatDue } from "../../utils/due";
 import { plural } from "../../utils/format";
 import { LIST_TYPES, listTypeOf, priorityLabel } from "../../utils/meta";
@@ -81,6 +84,8 @@ function ListForm({ list, onClose, onSubmit, titleRef, suggestions }) {
   });
   const [template, setTemplate] = useState(null);
   const [lookOpen, setLookOpen] = useState(false);
+  const isCustom = isHex(color);
+  const [customOpen, setCustomOpen] = useState(false);
   const hasExtras =
     !!list &&
     (!!list.description ||
@@ -209,7 +214,7 @@ function ListForm({ list, onClose, onSubmit, titleRef, suggestions }) {
                 className="h-9 w-32 rounded-lg border border-line bg-raised px-3 text-sm placeholder:text-faint focus:border-accent focus:outline-none"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {ACCENT_KEYS.map((k) => (
                 <button
                   key={k}
@@ -219,13 +224,14 @@ function ListForm({ list, onClose, onSubmit, titleRef, suggestions }) {
                   onClick={() => {
                     touched.current.look = true;
                     setColor(k);
+                    setCustomOpen(false);
                   }}
                   className="grid size-8 cursor-pointer place-items-center rounded-full"
                   style={{
-                    background: ACCENTS[k],
+                    background: accentHex(k),
                     boxShadow:
                       color === k
-                        ? `0 0 0 2px var(--c-surface), 0 0 0 4px ${ACCENTS[k]}`
+                        ? `0 0 0 2px var(--c-surface), 0 0 0 4px ${accentHex(k)}`
                         : "none",
                   }}
                 >
@@ -234,7 +240,53 @@ function ListForm({ list, onClose, onSubmit, titleRef, suggestions }) {
                   )}
                 </button>
               ))}
+              <button
+                type="button"
+                aria-label="Custom colour"
+                aria-pressed={isCustom}
+                aria-expanded={customOpen}
+                aria-controls="list-custom-colour"
+                title="Pick any colour"
+                onClick={() => {
+                  touched.current.look = true;
+                  if (!isCustom) setColor(accentHex(color));
+                  setCustomOpen((v) => !v);
+                }}
+                className="grid size-8 cursor-pointer place-items-center rounded-full"
+                style={{
+                  background: isCustom
+                    ? color
+                    : "conic-gradient(#f66, #fd5, #6e6, #5df, #86f, #f6c, #f66)",
+                  boxShadow: isCustom
+                    ? `0 0 0 2px var(--c-surface), 0 0 0 4px ${color}`
+                    : "none",
+                }}
+              >
+                {isCustom ? (
+                  <Check
+                    className="size-4"
+                    style={{ color: readableOn(color) }}
+                    aria-hidden
+                  />
+                ) : (
+                  <Pipette className="size-4 text-black/60" aria-hidden />
+                )}
+              </button>
             </div>
+            <Collapse open={customOpen} id="list-custom-colour">
+              <div className="pt-1">
+                {customOpen && (
+                  <ColorField
+                    value={isCustom ? color : accentHex(color)}
+                    onChange={(hex) => {
+                      touched.current.look = true;
+                      setColor(hex);
+                    }}
+                    presets={Object.values(ACCENTS)}
+                  />
+                )}
+              </div>
+            </Collapse>
           </div>
         </Collapse>
       </div>

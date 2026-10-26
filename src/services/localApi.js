@@ -29,7 +29,12 @@ const bump = (list) => {
 };
 
 export const localApi = {
-  capabilities: { auth: false, sharing: false, realtime: false },
+  capabilities: {
+    auth: false,
+    sharing: false,
+    realtime: false,
+    inviteEmail: false,
+  },
 
   async getUser() {
     return LOCAL_USER;
@@ -180,6 +185,9 @@ export const localApi = {
     unsupported();
   },
   async removeInvite() {
+    unsupported();
+  },
+  async sendInviteEmail() {
     unsupported();
   },
 };

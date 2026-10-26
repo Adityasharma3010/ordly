@@ -7,6 +7,13 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { api, backendMode } from "../../services/api";
+import { Collapse } from "../ui/Collapse";
+import { ColorField } from "../ui/ColorField";
+import { ACCENTS } from "../../utils/appearance";
+import { isHardToSee } from "../../utils/color";
+
+// Where the custom colour starts when you first choose it.
+const CUSTOM_START = "#4f8cff";
 
 const SHORTCUTS = [
   ["/", "Focus search"],
@@ -17,7 +24,7 @@ const SHORTCUTS = [
 
 export function SettingsModal({ open, onClose }) {
   const { user, renameUser, signOut } = useAuth();
-  const { theme, toggle } = useTheme();
+  const { theme, toggle, accentColor, setAccentColor } = useTheme();
   const { toast } = useToast();
   const [name, setName] = useState(user?.name || "");
   const [busy, setBusy] = useState(false);
@@ -75,6 +82,69 @@ export function SettingsModal({ open, onClose }) {
             Switch to {theme === "dark" ? "light" : "dark"}
           </Button>
         </div>
+
+        <fieldset className="min-w-0">
+          <legend className="text-sm font-medium">Accent colour</legend>
+          <p className="mt-0.5 mb-2 text-[13px] text-muted">
+            The colour of buttons, highlights and ticks. Kept on this device.
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {[
+              ["default", "Ordly amber", ACCENTS.amber],
+              ["custom", "Custom colour", accentColor],
+            ].map(([key, label, swatch]) => {
+              const on = (key === "custom") === !!accentColor;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    setAccentColor(
+                      key === "default" ? null : accentColor || CUSTOM_START,
+                    )
+                  }
+                  className={`flex h-11 cursor-pointer items-center gap-2.5 rounded-xl border px-3 text-left text-[13px] transition-colors ${on ? "border-accent bg-accent/10 text-fg" : "border-line bg-raised text-muted hover:border-line-strong hover:text-fg"}`}
+                >
+                  <span
+                    className="size-6 shrink-0 rounded-full border border-black/20"
+                    style={{
+                      background:
+                        swatch ||
+                        "conic-gradient(#f66, #fd5, #6e6, #5df, #86f, #f6c, #f66)",
+                    }}
+                    aria-hidden
+                  />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <Collapse open={!!accentColor} id="accent-custom">
+            <div className="pt-3">
+              {accentColor && (
+                <ColorField
+                  value={accentColor}
+                  onChange={setAccentColor}
+                  presets={Object.values(ACCENTS)}
+                />
+              )}
+              {accentColor && isHardToSee(accentColor, theme) && (
+                <p role="status" className="mt-2 text-xs text-danger">
+                  That colour is hard to see on the {theme} theme. A{" "}
+                  {theme === "dark" ? "lighter" : "darker"} one will work
+                  better.
+                </p>
+              )}
+            </div>
+          </Collapse>
+          <p className="mt-2 text-xs text-muted">
+            Want to match your computer’s accent colour? Use “Pick from screen”
+            (Chrome and Edge) and click a spot that has it, like the Windows
+            taskbar or the Start menu. The colour stays fixed; it won’t change
+            if you change it in Windows later.
+          </p>
+        </fieldset>
 
         <div>
           <p className="mb-2 text-sm font-medium">Keyboard shortcuts</p>

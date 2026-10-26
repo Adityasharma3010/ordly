@@ -11,7 +11,7 @@ import { cleanTime } from "../../utils/due";
 import { collectTags, listTypeOf } from "../../utils/meta";
 import { listAncestorIds } from "../../utils/listTree";
 import { usePersistentState } from "../../hooks/usePersistentState";
-import { accentHex } from "../../utils/appearance";
+import { accentStyle } from "../../utils/appearance";
 import { Button } from "../ui/Button";
 import { ListHeader } from "./ListHeader";
 import { SaveTemplateModal } from "../templates/SaveTemplateModal";
@@ -93,10 +93,11 @@ export function ListWorkspace({ list, actions }) {
     }
   };
 
+  const look = accentStyle(list.color);
   return (
     <div
-      className="mx-auto w-full max-w-3xl px-4 pt-6 pb-32 sm:px-8 sm:pt-10"
-      style={{ "--c-accent": accentHex(list.color) }}
+      className={`mx-auto w-full max-w-3xl px-4 pt-6 pb-32 sm:px-8 sm:pt-10 ${look.className}`}
+      style={look.style}
     >
       <ListHeader
         list={list}

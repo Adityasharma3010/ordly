@@ -21,7 +21,12 @@ const toUser = (u) =>
 let claimedFor = null;
 
 export const supabaseApi = {
-  capabilities: { auth: true, sharing: true, realtime: true },
+  capabilities: {
+    auth: true,
+    sharing: true,
+    realtime: true,
+    inviteEmail: true,
+  },
 
   // ---------- Auth ----------
   async getUser() {
@@ -336,7 +341,7 @@ export const supabaseApi = {
   async invites(listId) {
     const { data, error } = await supabase
       .from("list_invites")
-      .select("id, email, role, created_at")
+      .select("id, email, role, created_at, emailed_at, email_count")
       .eq("list_id", listId)
       .order("created_at");
     fail(error);
@@ -344,13 +349,41 @@ export const supabaseApi = {
   },
   // Adding the same email again just changes its role.
   async inviteByEmail(listId, email, role) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("list_invites")
       .upsert(
         { list_id: listId, email: email.trim().toLowerCase(), role },
         { onConflict: "list_id,email" },
-      );
+      )
+      .select("id")
+      .single();
     fail(error);
+    return data?.id;
+  },
+  // Asks the send-invite function (supabase/functions/send-invite) to email the invite. It only
+  // gets the invite's id; the database decides who it is for and whether it may be sent now.
+  // Failures carry a `code` (see utils/invite.js) so the screen can explain them.
+  async sendInviteEmail(inviteId) {
+    const { data, error } = await supabase.functions.invoke("send-invite", {
+      body: { invite_id: inviteId },
+    });
+    if (!error) return data;
+    let code = "unreachable";
+    let detail = "";
+    const res = error.context;
+    if (res && typeof res.json === "function") {
+      if (res.status === 404) code = "not_deployed";
+      else {
+        try {
+          const body = await res.json();
+          code = body.error || "failed";
+          detail = body.provider_message || (body.missing || []).join(", ");
+        } catch {
+          code = "failed";
+        }
+      }
+    }
+    throw Object.assign(new Error(code), { code, detail });
   },
   async removeInvite(inviteId) {
     const { error } = await supabase

@@ -1,0 +1,1554 @@
+diff --git a/src/components/sharing/ShareModal.jsx b/src/components/sharing/ShareModal.jsx
+index d2dac8e..c6a3ca1 100644
+--- a/src/components/sharing/ShareModal.jsx
++++ b/src/components/sharing/ShareModal.jsx
+@@ -4,11 +4,13 @@ import {
+   Check,
+   Clock,
+   Copy,
++  ExternalLink,
+   Globe,
+   Link2Off,
+   Lock,
+   Mail,
+   RefreshCw,
++  Send,
+   UserMinus,
+ } from "lucide-react";
+ import { Modal } from "../ui/Modal";
+@@ -21,6 +23,7 @@ import { api } from "../../services/api";
+ import { useAuth } from "../../contexts/AuthContext";
+ import { useToast } from "../../contexts/ToastContext";
+ import { plural, timeAgo } from "../../utils/format";
++import { inviteErrorText, inviteMailto } from "../../utils/invite";
+ 
+ const EXPIRY = [
+   { key: "never", label: "Never expires", days: null },
+@@ -200,15 +203,52 @@ export function ShareModal({ open, onClose, list }) {
+     if (addr === (user?.email || "").toLowerCase())
+       return setEmailError("That’s your own email. You already own this list.");
+     setEmailError("");
++    const canEmail = api.capabilities.inviteEmail;
+     await run(
+       "invite",
+       async () => {
+-        await api.inviteByEmail(list.id, addr, inviteRole);
++        const id = await api.inviteByEmail(list.id, addr, inviteRole);
+         setEmail("");
++        if (!canEmail || !id) return;
++        // Email it straight away. If that can't be done the invite is still saved, and the
++        // person can use the email-app button on its row instead.
++        try {
++          await api.sendInviteEmail(id);
++          toast({ tone: "success", message: `Invite emailed to ${addr}` });
++        } catch (e) {
++          toast({
++            tone: "info",
++            duration: 9000,
++            message: `Added ${addr}, but the email wasn’t sent. ${inviteErrorText(e)} Use the “open in your email app” button next to their name.`,
++          });
++        }
+       },
+-      `Added ${addr}. No email was sent, so tell them to sign in to Ordly with this address.`,
++      canEmail
++        ? null
++        : `Added ${addr}. No email was sent, so tell them to sign in to Ordly with this address.`,
+     );
+   };
++  const sendEmail = (inv) =>
++    run(
++      `i-${inv.id}`,
++      async () => {
++        try {
++          await api.sendInviteEmail(inv.id);
++          toast({ tone: "success", message: `Invite emailed to ${inv.email}` });
++        } catch (e) {
++          toast({ tone: "error", message: inviteErrorText(e) });
++        }
++      },
++      null,
++    );
++  const mailtoFor = (inv) =>
++    inviteMailto({
++      email: inv.email,
++      listTitle: list.title,
++      role: inv.role,
++      inviterName: user?.name || "",
++      appUrl: window.location.origin,
++    }).href;
+   const roleText = (role) => (role === "editor" ? "edit" : "view");
+   const changeRole = (p, role) =>
+     run(
+@@ -365,9 +405,9 @@ export function ShareModal({ open, onClose, list }) {
+                 </p>
+               ) : (
+                 <p id="share-email-hint" className="mt-1.5 text-xs text-faint">
+-                  Ordly doesn’t send emails, so tell them yourself. Once they
+-                  sign in with this address, the list appears under Shared with
+-                  me.
++                  {api.capabilities.inviteEmail
++                    ? "We email them a link. Once they sign in with this address, the list appears under Shared with me."
++                    : "Ordly doesn’t send emails, so tell them yourself. Once they sign in with this address, the list appears under Shared with me."}
+                 </p>
+               )}
+             </form>
+@@ -429,11 +469,20 @@ export function ShareModal({ open, onClose, list }) {
+                     <span className="grid size-7 place-items-center rounded-full bg-raised text-muted">
+                       <Mail className="size-3.5" aria-hidden />
+                     </span>
+-                    <span className="min-w-0 flex-1 truncate text-sm">
+-                      {inv.email}
+-                      <span className="ml-2 rounded bg-raised px-1.5 py-0.5 text-xs text-muted">
+-                        Pending
++                    <span className="min-w-0 flex-1 text-sm">
++                      <span className="block truncate">
++                        {inv.email}
++                        <span className="ml-2 rounded bg-raised px-1.5 py-0.5 text-xs text-muted">
++                          Pending
++                        </span>
+                       </span>
++                      {api.capabilities.inviteEmail && (
++                        <span className="block text-xs text-faint">
++                          {inv.emailed_at
++                            ? `Emailed ${timeAgo(inv.emailed_at)}`
++                            : "Not emailed yet"}
++                        </span>
++                      )}
+                     </span>
+                     <RoleSelect
+                       label={`Access for ${inv.email}`}
+@@ -441,6 +490,26 @@ export function ShareModal({ open, onClose, list }) {
+                       disabled={busy === `i-${inv.id}`}
+                       onChange={(r) => changeInviteRole(inv, r)}
+                     />
++                    {api.capabilities.inviteEmail && (
++                      <IconButton
++                        size="sm"
++                        label={`${inv.emailed_at ? "Email again to" : "Email invite to"} ${inv.email}`}
++                        disabled={busy === `i-${inv.id}`}
++                        onClick={() => sendEmail(inv)}
++                      >
++                        <Send className="size-4" />
++                      </IconButton>
++                    )}
++                    {api.capabilities.inviteEmail && (
++                      <a
++                        href={mailtoFor(inv)}
++                        aria-label={`Open your email app to invite ${inv.email}`}
++                        title="Open in your email app"
++                        className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted transition duration-150 hover:bg-raised hover:text-fg active:scale-95"
++                      >
++                        <ExternalLink className="size-4" aria-hidden />
++                      </a>
++                    )}
+                     <IconButton
+                       size="sm"
+                       label={`Remove invite for ${inv.email}`}
+diff --git a/src/services/localApi.js b/src/services/localApi.js
+index 5eb5fc5..be4cf9b 100644
+--- a/src/services/localApi.js
++++ b/src/services/localApi.js
+@@ -29,7 +29,12 @@ const bump = (list) => {
+ };
+ 
+ export const localApi = {
+-  capabilities: { auth: false, sharing: false, realtime: false },
++  capabilities: {
++    auth: false,
++    sharing: false,
++    realtime: false,
++    inviteEmail: false,
++  },
+ 
+   async getUser() {
+     return LOCAL_USER;
+@@ -182,4 +187,7 @@ export const localApi = {
+   async removeInvite() {
+     unsupported();
+   },
++  async sendInviteEmail() {
++    unsupported();
++  },
+ };
+diff --git a/src/services/supabaseApi.js b/src/services/supabaseApi.js
+index 3ce560e..c4e99c5 100644
+--- a/src/services/supabaseApi.js
++++ b/src/services/supabaseApi.js
+@@ -21,7 +21,12 @@ const toUser = (u) =>
+ let claimedFor = null;
+ 
+ export const supabaseApi = {
+-  capabilities: { auth: true, sharing: true, realtime: true },
++  capabilities: {
++    auth: true,
++    sharing: true,
++    realtime: true,
++    inviteEmail: true,
++  },
+ 
+   // ---------- Auth ----------
+   async getUser() {
+@@ -336,7 +341,7 @@ export const supabaseApi = {
+   async invites(listId) {
+     const { data, error } = await supabase
+       .from("list_invites")
+-      .select("id, email, role, created_at")
++      .select("id, email, role, created_at, emailed_at, email_count")
+       .eq("list_id", listId)
+       .order("created_at");
+     fail(error);
+@@ -344,13 +349,41 @@ export const supabaseApi = {
+   },
+   // Adding the same email again just changes its role.
+   async inviteByEmail(listId, email, role) {
+-    const { error } = await supabase
++    const { data, error } = await supabase
+       .from("list_invites")
+       .upsert(
+         { list_id: listId, email: email.trim().toLowerCase(), role },
+         { onConflict: "list_id,email" },
+-      );
++      )
++      .select("id")
++      .single();
+     fail(error);
++    return data?.id;
++  },
++  // Asks the send-invite function (supabase/functions/send-invite) to email the invite. It only
++  // gets the invite's id; the database decides who it is for and whether it may be sent now.
++  // Failures carry a `code` (see utils/invite.js) so the screen can explain them.
++  async sendInviteEmail(inviteId) {
++    const { data, error } = await supabase.functions.invoke("send-invite", {
++      body: { invite_id: inviteId },
++    });
++    if (!error) return data;
++    let code = "unreachable";
++    let detail = "";
++    const res = error.context;
++    if (res && typeof res.json === "function") {
++      if (res.status === 404) code = "not_deployed";
++      else {
++        try {
++          const body = await res.json();
++          code = body.error || "failed";
++          detail = body.provider_message || (body.missing || []).join(", ");
++        } catch {
++          code = "failed";
++        }
++      }
++    }
++    throw Object.assign(new Error(code), { code, detail });
+   },
+   async removeInvite(inviteId) {
+     const { error } = await supabase
+diff --git a/src/utils/invite.js b/src/utils/invite.js
+new file mode 100644
+index 0000000..cb5d3ee
+--- /dev/null
++++ b/src/utils/invite.js
+@@ -0,0 +1,66 @@
++// Helpers for invite emails: the message for "Open in your email app", and plain-English
++// versions of what can go wrong when asking Ordly to send one.
++
++// eslint-disable-next-line no-control-regex
++const CONTROL = /[\u0000-\u001f\u007f]+/g;
++const clean = (s, max) =>
++  String(s ?? "")
++    .replace(CONTROL, " ")
++    .trim()
++    .slice(0, max);
++
++// A ready-to-send message for the person's own email app (a mailto: link).
++export function inviteMailto({ email, listTitle, role, inviterName, appUrl }) {
++  const title = clean(listTitle, 100) || "a list";
++  const can = role === "editor" ? "edit" : "view";
++  const link = `${String(appUrl || "").replace(/\/+$/, "")}/login`;
++  const subject = `Join my list “${title}” on Ordly`;
++  const body = [
++    "Hi,",
++    "",
++    `I’ve shared the list “${title}” with you on Ordly. You’ll be able to ${can} it.`,
++    "",
++    `To open it, sign in (or create an account) with this email address, ${email}:`,
++    link,
++    "",
++    "The list will then appear under “Shared with me”.",
++    "",
++    clean(inviterName, 60),
++  ].join("\n");
++  return {
++    subject,
++    body,
++    // encodeURIComponent, not "+" for spaces: email apps show a "+" literally.
++    href: `mailto:${encodeURIComponent(email).replace(/%40/g, "@")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
++  };
++}
++
++// What to tell the person when sending failed. `e.code` comes from the send-invite function
++// (or "not_deployed" / "unreachable" when it isn't set up).
++export function inviteErrorText(e) {
++  switch (e?.code) {
++    case "not_deployed":
++    case "unreachable":
++      return "Email sending isn’t set up on this Ordly yet.";
++    case "not_configured":
++      return `Email sending isn’t finished being set up${e.detail ? ` (missing: ${e.detail})` : ""}.`;
++    case "cooldown":
++      return "You just emailed them. Try again in a minute.";
++    case "too_many_for_invite":
++      return "That invite has already been emailed 5 times.";
++    case "hourly_limit":
++      return "You’ve sent a lot of invites this hour. Try again a bit later.";
++    case "daily_limit":
++      return "You’ve reached today’s limit for invite emails. Try again tomorrow.";
++    case "unverified":
++      return "Confirm your own email address first, then you can send invites.";
++    case "not_signed_in":
++      return "Please sign in again, then try once more.";
++    case "not_allowed":
++      return "You can only email invites for lists you own.";
++    case "email_failed":
++      return `The email service couldn’t send it${e.detail ? `: ${e.detail}` : "."}`;
++    default:
++      return "The email couldn’t be sent.";
++  }
++}
+diff --git a/supabase/functions/send-invite/SETUP.md b/supabase/functions/send-invite/SETUP.md
+new file mode 100644
+index 0000000..015304b
+--- /dev/null
++++ b/supabase/functions/send-invite/SETUP.md
+@@ -0,0 +1,67 @@
++# Setting up invite emails (one time)
++
++Ordly sends invite emails through [Resend](https://resend.com) (free plan: 100 emails a day,
++3,000 a month). The sending is done by a small Supabase "Edge Function" called `send-invite`.
++You do three things: set up Resend, run one SQL file, and deploy the function.
++
++Nothing here needs a secret to be shared with anyone: you type the Resend key straight into the
++Supabase dashboard, and nobody else (including Claude) needs to see it.
++
++## 1. Resend: verify your domain and get a key
++
++Use a sub-domain just for mail, like `mail.yourdomain.com`, so it never touches your website's
++or your own mailbox's email settings.
++
++1. Go to resend.com and sign up.
++2. Left menu **Domains** → **Add Domain** → type `mail.yourdomain.com` → Add.
++3. Resend shows a few DNS records (usually 1 `MX`, 1 `TXT` for SPF, 1 `TXT` for DKIM).
++   Open the DNS settings of wherever your domain is managed (your registrar, or Cloudflare…)
++   and add each record exactly as shown (Type, Name, Value). Then click **Verify** in Resend.
++   It can take a few minutes up to an hour. Wait until it says **Verified**.
++4. Left menu **API Keys** → **Create API Key** → name it `ordly`, permission **Sending access**,
++   domain = your domain → Create. **Copy the key now** (it is only shown once). Keep it for step 3.
++
++## 2. Supabase: run the SQL
++
++1. Supabase project → **SQL Editor** → **New query**.
++2. Open `supabase/invite-emails.sql`, copy everything, paste it, click **Run**. It should say
++   Success. (Safe to run twice.)
++
++## 3. Supabase: deploy the function and add its settings
++
++1. **Edge Functions** (left menu) → **Deploy a new function** → **Via Editor**.
++2. Name it exactly `send-invite`.
++3. Delete the sample code, then paste in the whole of `supabase/functions/send-invite/index.ts`.
++4. Click **Deploy function**.
++5. **Edge Functions** → **Secrets** (or the project's Edge Function secrets page) → **Add new
++   secret**, three times:
++   - `RESEND_API_KEY` = the key you copied in step 1
++   - `MAIL_FROM` = `Ordly <invites@mail.yourdomain.com>` (any name before `@` works, but the
++     domain part must be the one you verified)
++   - `APP_URL` = `https://ordly-lists.vercel.app`
++6. Optional: `ALLOWED_ORIGINS` = extra websites allowed to use it (for example a Vercel preview
++   address). Your live site and `http://localhost:5173` are always allowed.
++
++## 4. Try it
++
++Open a list → Share → add an email address you own. You should see "Invite emailed to …" and
++the email arrives within a few seconds (check spam the first time). The pending invite then
++shows "Emailed just now", and the buttons next to it let you email it again or open your own
++email app with the message ready.
++
++## If something goes wrong
++
++The message in Ordly says what is wrong:
++
++| Message | What to do |
++| --- | --- |
++| "Email sending isn't set up on this Ordly yet" | The function isn't deployed, or is named differently. It must be called `send-invite`. |
++| "…isn't finished being set up (missing: …)" | Add the secrets it names in step 3.5. |
++| "The email service couldn't send it: … domain is not verified" | Finish step 1.3 (DNS records) and wait for **Verified**. |
++| "The email service couldn't send it: API key is invalid" | Create a new key (step 1.4) and replace `RESEND_API_KEY`. |
++| "Invalid JWT" / the email never goes | In Edge Functions → `send-invite` → Details, switch **Verify JWT** off and deploy again. It is safe: the database re-checks who is calling on every send. (Only needed if your project uses the newer API keys.) |
++| "Confirm your own email address first" | Your own Ordly account's email must be confirmed. |
++| "Try again in a minute" / "this hour" / "tomorrow" | Sending limits: 1 minute between emails to the same invite, 5 emails per invite, 20 an hour and 60 a day per person. |
++
++Nothing is lost when sending fails: the invite is saved either way, and "Open in your email app"
++always works as a backup.
+diff --git a/supabase/functions/send-invite/index.ts b/supabase/functions/send-invite/index.ts
+new file mode 100644
+index 0000000..f99701e
+--- /dev/null
++++ b/supabase/functions/send-invite/index.ts
+@@ -0,0 +1,268 @@
++// Supabase Edge Function: send-invite
++//
++// Sends the "you've been invited to a list" email through Resend. The browser calls it with
++// the signed-in person's login, like this:  supabase.functions.invoke("send-invite", {
++// body: { invite_id } }). It never takes an email address or any text from the browser: it asks
++// the database (invite_email_begin) who the invite is for and which list it is about, and the
++// database only answers if the caller owns that list, has a confirmed email and is within the
++// sending limits. So this can't be used to send mail to arbitrary people or with arbitrary text.
++//
++// Secrets it needs (Supabase Dashboard > Edge Functions > Secrets). SUPABASE_URL and
++// SUPABASE_ANON_KEY are provided automatically; you add the other three:
++//   RESEND_API_KEY   your Resend API key
++//   MAIL_FROM        who the email comes from, e.g.  Ordly <invites@mail.yourdomain.com>
++//   APP_URL          where Ordly lives, e.g.  https://ordly-lists.vercel.app
++// Optional:
++//   ALLOWED_ORIGINS  extra websites allowed to call this, comma separated (previews, etc.)
++//   RESEND_API_URL   only for testing against a pretend email service; leave it unset
++
++// ------------------------------------------------------------------ email text
++
++// Makes text safe to put inside HTML.
++export function esc(s: unknown): string {
++  return String(s ?? "")
++    .replace(/&/g, "&amp;")
++    .replace(/</g, "&lt;")
++    .replace(/>/g, "&gt;")
++    .replace(/"/g, "&quot;")
++    .replace(/'/g, "&#39;");
++}
++
++// One line, no control characters, not too long (for subjects and names).
++const oneLine = (s: unknown, max: number) =>
++  // deno-lint-ignore no-control-regex
++  String(s ?? "")
++    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ")
++    .trim()
++    .slice(0, max);
++
++export type InviteDetails = {
++  inviter: string;
++  listTitle: string;
++  invitee: string;
++  role: string;
++  appUrl: string;
++};
++
++export function buildInviteEmail(d: InviteDetails) {
++  const inviter = oneLine(d.inviter, 60) || "Someone";
++  const title = oneLine(d.listTitle, 100) || "a list";
++  const can = d.role === "editor" ? "edit" : "view";
++  const link = `${d.appUrl.replace(/\/+$/, "")}/login`;
++  const subject = `${inviter} invited you to “${title}” on Ordly`;
++
++  const text = [
++    `${inviter} shared the list “${title}” with you on Ordly. You will be able to ${can} it.`,
++    "",
++    `To open it, sign in (or create an account) with this email address, ${d.invitee}:`,
++    link,
++    "",
++    "The list will appear under “Shared with me”.",
++    "",
++    "If you weren’t expecting this, you can ignore this email. Nothing happens unless you sign in with this address.",
++  ].join("\n");
++
++  const html = `<!doctype html>
++<html><body style="margin:0;padding:24px;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1b1f27">
++  <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:14px;padding:28px">
++    <p style="margin:0 0 4px;font-size:13px;letter-spacing:.04em;color:#8a6a1f">ORDLY</p>
++    <h1 style="margin:0 0 14px;font-size:20px;line-height:1.3">${esc(inviter)} invited you to “${esc(title)}”</h1>
++    <p style="margin:0 0 18px;font-size:15px;line-height:1.55">You will be able to <b>${can}</b> this list. Sign in (or create an account) with <b>${esc(d.invitee)}</b> and it will appear under “Shared with me”.</p>
++    <p style="margin:0 0 22px"><a href="${esc(link)}" style="display:inline-block;background:#f0b24b;color:#17130a;text-decoration:none;font-weight:600;font-size:15px;padding:11px 20px;border-radius:10px">Open Ordly</a></p>
++    <p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280">If you weren’t expecting this, you can ignore this email. Nothing happens unless you sign in with this address.</p>
++  </div>
++</body></html>`;
++  return { subject, text, html };
++}
++
++// ------------------------------------------------------------------ the request
++
++type Env = { get(key: string): string | undefined };
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
++
++// What the database says when it refuses, and what we answer.
++const REFUSALS: Record<string, [number, string]> = {
++  not_allowed: [403, "not_allowed"],
++  unverified: [403, "unverified"],
++  cooldown: [429, "cooldown"],
++  too_many_for_invite: [429, "too_many_for_invite"],
++  hourly_limit: [429, "hourly_limit"],
++  daily_limit: [429, "daily_limit"],
++};
++
++function corsFor(req: Request, env: Env): Record<string, string> {
++  const origin = req.headers.get("Origin") || "";
++  const allowed = new Set<string>([
++    "http://localhost:5173",
++    "http://127.0.0.1:5173",
++  ]);
++  try {
++    const app = env.get("APP_URL");
++    if (app) allowed.add(new URL(app).origin);
++  } catch {
++    /* APP_URL isn't a web address; reported below */
++  }
++  for (const o of (env.get("ALLOWED_ORIGINS") || "").split(","))
++    if (o.trim()) allowed.add(o.trim());
++  const headers: Record<string, string> = {
++    "Access-Control-Allow-Headers":
++      "authorization, x-client-info, apikey, content-type",
++    "Access-Control-Allow-Methods": "POST, OPTIONS",
++    Vary: "Origin",
++  };
++  if (allowed.has(origin)) headers["Access-Control-Allow-Origin"] = origin;
++  return headers;
++}
++
++export async function handle(
++  req: Request,
++  env: Env,
++  doFetch: typeof fetch,
++): Promise<Response> {
++  const cors = corsFor(req, env);
++  const reply = (status: number, body: Record<string, unknown>) =>
++    new Response(JSON.stringify(body), {
++      status,
++      headers: { ...cors, "Content-Type": "application/json" },
++    });
++
++  if (req.method === "OPTIONS")
++    return new Response(null, { status: 204, headers: cors });
++  if (req.method !== "POST") return reply(405, { error: "method_not_allowed" });
++
++  const auth = req.headers.get("Authorization") || "";
++  if (!/^Bearer\s+\S+$/i.test(auth))
++    return reply(401, { error: "not_signed_in" });
++
++  let inviteId = "";
++  try {
++    const body = await req.json();
++    inviteId = typeof body?.invite_id === "string" ? body.invite_id : "";
++  } catch {
++    /* handled just below */
++  }
++  if (!UUID.test(inviteId)) return reply(400, { error: "bad_request" });
++
++  const cfg = {
++    SUPABASE_URL: env.get("SUPABASE_URL"),
++    SUPABASE_ANON_KEY: env.get("SUPABASE_ANON_KEY"),
++    RESEND_API_KEY: env.get("RESEND_API_KEY"),
++    MAIL_FROM: env.get("MAIL_FROM"),
++    APP_URL: env.get("APP_URL"),
++  };
++  const missing = Object.entries(cfg)
++    .filter(([, v]) => !v)
++    .map(([k]) => k);
++  if (missing.length) return reply(503, { error: "not_configured", missing });
++  if (!/^https?:\/\//i.test(cfg.APP_URL!)) {
++    return reply(503, {
++      error: "not_configured",
++      missing: ["APP_URL (must start with https://)"],
++    });
++  }
++
++  const rpc = (name: string, args: Record<string, unknown>) =>
++    doFetch(`${cfg.SUPABASE_URL!.replace(/\/+$/, "")}/rest/v1/rpc/${name}`, {
++      method: "POST",
++      headers: {
++        apikey: cfg.SUPABASE_ANON_KEY!,
++        Authorization: auth, // the caller's own login: the database decides what they may do
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify(args),
++    });
++
++  // 1. Ask the database whether this invite may be emailed right now, and what it says.
++  let details: {
++    log_id: string;
++    list_title: string;
++    invitee: string;
++    role: string;
++    inviter_name: string;
++  };
++  try {
++    const res = await rpc("invite_email_begin", { p_invite_id: inviteId });
++    const data = await res.json().catch(() => ({}));
++    if (!res.ok) {
++      const msg = String(data?.message || "");
++      if (res.status === 401 || /jwt/i.test(msg))
++        return reply(401, { error: "not_signed_in" });
++      for (const [key, [status, code]] of Object.entries(REFUSALS))
++        if (msg.includes(key)) return reply(status, { error: code });
++      return reply(502, { error: "database_error" });
++    }
++    details = data;
++  } catch {
++    return reply(502, { error: "database_error" });
++  }
++
++  // 2. Send it.
++  const mail = buildInviteEmail({
++    inviter: details.inviter_name,
++    listTitle: details.list_title,
++    invitee: details.invitee,
++    role: details.role,
++    appUrl: cfg.APP_URL!,
++  });
++  let failure: { status: number; message: string } | null = null;
++  try {
++    const res = await doFetch(
++      env.get("RESEND_API_URL") || "https://api.resend.com/emails",
++      {
++        method: "POST",
++        headers: {
++          Authorization: `Bearer ${cfg.RESEND_API_KEY}`,
++          "Content-Type": "application/json",
++          "Idempotency-Key": details.log_id, // a retry of the same send never emails twice
++        },
++        body: JSON.stringify({
++          from: cfg.MAIL_FROM,
++          to: [details.invitee],
++          subject: mail.subject,
++          text: mail.text,
++          html: mail.html,
++        }),
++        signal: AbortSignal.timeout(10_000),
++      },
++    );
++    if (!res.ok) {
++      const data = await res.json().catch(() => ({}));
++      failure = {
++        status: res.status,
++        message: String(data?.message || "").slice(0, 300),
++      };
++    }
++  } catch {
++    failure = { status: 0, message: "Couldn’t reach the email service." };
++  }
++
++  // 3. If the email service said no, give the sending allowance back and say why.
++  if (failure) {
++    try {
++      await rpc("invite_email_undo", { p_log_id: details.log_id });
++    } catch {
++      /* best effort */
++    }
++    return reply(502, {
++      error: "email_failed",
++      provider_status: failure.status,
++      provider_message: failure.message,
++    });
++  }
++
++  return reply(200, {
++    ok: true,
++    sent_to: details.invitee,
++    sent_at: new Date().toISOString(),
++  });
++}
++
++// Start serving when running inside Supabase (the Deno runtime). Skipped when this file is
++// imported by the tests.
++const deno = (
++  globalThis as {
++    Deno?: { serve: (h: (r: Request) => Promise<Response>) => void; env: Env };
++  }
++).Deno;
++if (deno) deno.serve((req) => handle(req, deno.env, fetch));
+diff --git a/supabase/invite-emails.sql b/supabase/invite-emails.sql
+new file mode 100644
+index 0000000..44b1b4f
+--- /dev/null
++++ b/supabase/invite-emails.sql
+@@ -0,0 +1,108 @@
++-- =====================================================================
++-- Ordly — invite emails (run ONCE on your live Supabase project)
++--
++--   • remembers when each pending invite was last emailed
++--   • invite_email_begin(): the one place that decides whether an invite email may be sent
++--     right now (you own the list, your own email is confirmed, not too often) and hands back
++--     what the email says. The Edge Function "send-invite" calls it before it sends anything.
++--   • invite_email_undo(): takes a send back if the email service failed, so a broken setup
++--     doesn't use up your sending allowance while you fix it
++--
++-- Dashboard → SQL Editor → New query → paste this whole file → Run.
++-- supabase/schema.sql has already been updated to match, so a brand-new project only needs
++-- schema.sql. Safe to run twice; nothing existing changes.
++-- =====================================================================
++
++alter table public.list_invites
++  add column if not exists emailed_at  timestamptz,
++  add column if not exists email_count smallint not null default 0;
++
++-- A private log of sends, used for the limits below. Nobody can read or write it through the
++-- API (RLS on, no policies): only the functions below touch it.
++create table if not exists public.invite_email_log (
++  id               uuid primary key default gen_random_uuid(),
++  owner_id         uuid not null references auth.users (id) on delete cascade,
++  invite_id        uuid references public.list_invites (id) on delete set null,
++  prev_emailed_at  timestamptz,
++  sent_at          timestamptz not null default now()
++);
++alter table public.invite_email_log enable row level security;
++create index if not exists invite_email_log_owner_idx on public.invite_email_log (owner_id, sent_at desc);
++
++-- Limits: 1 minute between emails for the same invite, 5 emails per invite, 20 an hour and
++-- 60 a day per person. Raise them here if you ever need to.
++create or replace function public.invite_email_begin(p_invite_id uuid)
++returns jsonb language plpgsql security definer set search_path = public, auth as $$
++declare
++  uid uuid := auth.uid();
++  inv record;
++  who text;
++  log_id uuid;
++begin
++  if uid is null then raise exception 'not_allowed'; end if;
++
++  select i.id, i.email, i.role, i.emailed_at, i.email_count, l.id as list_id, l.title
++    into inv
++    from public.list_invites i
++    join public.lists l on l.id = i.list_id
++   where i.id = p_invite_id and l.owner_id = uid;
++  if not found then raise exception 'not_allowed'; end if;
++
++  -- Only people with a confirmed email can send, so throwaway accounts can't be used to spam.
++  if not exists (select 1 from auth.users u where u.id = uid and u.email_confirmed_at is not null) then
++    raise exception 'unverified';
++  end if;
++
++  if inv.emailed_at is not null and inv.emailed_at > now() - interval '1 minute' then
++    raise exception 'cooldown';
++  end if;
++  if inv.email_count >= 5 then raise exception 'too_many_for_invite'; end if;
++  if (select count(*) from public.invite_email_log where owner_id = uid and sent_at > now() - interval '1 hour') >= 20 then
++    raise exception 'hourly_limit';
++  end if;
++  if (select count(*) from public.invite_email_log where owner_id = uid and sent_at > now() - interval '1 day') >= 60 then
++    raise exception 'daily_limit';
++  end if;
++
++  select coalesce(nullif(btrim(p.display_name), ''), split_part(u.email, '@', 1))
++    into who
++    from auth.users u
++    left join public.profiles p on p.id = u.id
++   where u.id = uid;
++
++  insert into public.invite_email_log (owner_id, invite_id, prev_emailed_at)
++  values (uid, inv.id, inv.emailed_at)
++  returning id into log_id;
++
++  update public.list_invites
++     set emailed_at = now(), email_count = email_count + 1
++   where id = inv.id;
++
++  return jsonb_build_object(
++    'log_id', log_id,
++    'list_id', inv.list_id,
++    'list_title', inv.title,
++    'invitee', inv.email,
++    'role', inv.role,
++    'inviter_name', who
++  );
++end $$;
++
++create or replace function public.invite_email_undo(p_log_id uuid)
++returns void language plpgsql security definer set search_path = public, auth as $$
++declare
++  uid uuid := auth.uid();
++  entry record;
++begin
++  if uid is null then return; end if;
++  select * into entry from public.invite_email_log where id = p_log_id and owner_id = uid;
++  if not found then return; end if;
++  update public.list_invites
++     set emailed_at = entry.prev_emailed_at,
++         email_count = greatest(email_count - 1, 0)
++   where id = entry.invite_id;
++  delete from public.invite_email_log where id = entry.id;
++end $$;
++
++revoke execute on function public.invite_email_begin(uuid) from public, anon;
++revoke execute on function public.invite_email_undo(uuid)  from public, anon;
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index 123eba6..ede637d 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -108,9 +108,22 @@ create table public.list_invites (
+   role       text not null check (role in ('viewer', 'editor')),
+   invited_by uuid default auth.uid() references auth.users (id) on delete set null,
+   created_at timestamptz not null default now(),
++  emailed_at  timestamptz,
++  email_count smallint not null default 0,
+   unique (list_id, email)
+ );
+ 
++-- A private log of invite emails, used for the sending limits. Nobody can read or write it
++-- through the API (RLS on, no policies): only invite_email_begin / invite_email_undo touch it.
++create table public.invite_email_log (
++  id               uuid primary key default gen_random_uuid(),
++  owner_id         uuid not null references auth.users (id) on delete cascade,
++  invite_id        uuid references public.list_invites (id) on delete set null,
++  prev_emailed_at  timestamptz,
++  sent_at          timestamptz not null default now()
++);
++create index invite_email_log_owner_idx on public.invite_email_log (owner_id, sent_at desc);
++
+ -- Saved templates ("Save as template" on a list): a private tree of items to start new
+ -- lists from.
+ create table public.list_templates (
+@@ -286,6 +299,7 @@ alter table public.list_items   enable row level security;
+ alter table public.list_shares  enable row level security;
+ alter table public.list_members enable row level security;
+ alter table public.list_invites enable row level security;
++alter table public.invite_email_log enable row level security;
+ alter table public.list_templates enable row level security;
+ 
+ revoke all on all tables in schema public from anon;
+@@ -484,6 +498,81 @@ begin
+   return n;
+ end $$;
+ 
++-- Limits: 1 minute between emails for the same invite, 5 emails per invite, 20 an hour and
++-- 60 a day per person. Raise them here if you ever need to.
++create or replace function public.invite_email_begin(p_invite_id uuid)
++returns jsonb language plpgsql security definer set search_path = public, auth as $$
++declare
++  uid uuid := auth.uid();
++  inv record;
++  who text;
++  log_id uuid;
++begin
++  if uid is null then raise exception 'not_allowed'; end if;
++
++  select i.id, i.email, i.role, i.emailed_at, i.email_count, l.id as list_id, l.title
++    into inv
++    from public.list_invites i
++    join public.lists l on l.id = i.list_id
++   where i.id = p_invite_id and l.owner_id = uid;
++  if not found then raise exception 'not_allowed'; end if;
++
++  -- Only people with a confirmed email can send, so throwaway accounts can't be used to spam.
++  if not exists (select 1 from auth.users u where u.id = uid and u.email_confirmed_at is not null) then
++    raise exception 'unverified';
++  end if;
++
++  if inv.emailed_at is not null and inv.emailed_at > now() - interval '1 minute' then
++    raise exception 'cooldown';
++  end if;
++  if inv.email_count >= 5 then raise exception 'too_many_for_invite'; end if;
++  if (select count(*) from public.invite_email_log where owner_id = uid and sent_at > now() - interval '1 hour') >= 20 then
++    raise exception 'hourly_limit';
++  end if;
++  if (select count(*) from public.invite_email_log where owner_id = uid and sent_at > now() - interval '1 day') >= 60 then
++    raise exception 'daily_limit';
++  end if;
++
++  select coalesce(nullif(btrim(p.display_name), ''), split_part(u.email, '@', 1))
++    into who
++    from auth.users u
++    left join public.profiles p on p.id = u.id
++   where u.id = uid;
++
++  insert into public.invite_email_log (owner_id, invite_id, prev_emailed_at)
++  values (uid, inv.id, inv.emailed_at)
++  returning id into log_id;
++
++  update public.list_invites
++     set emailed_at = now(), email_count = email_count + 1
++   where id = inv.id;
++
++  return jsonb_build_object(
++    'log_id', log_id,
++    'list_id', inv.list_id,
++    'list_title', inv.title,
++    'invitee', inv.email,
++    'role', inv.role,
++    'inviter_name', who
++  );
++end $$;
++
++create or replace function public.invite_email_undo(p_log_id uuid)
++returns void language plpgsql security definer set search_path = public, auth as $$
++declare
++  uid uuid := auth.uid();
++  entry record;
++begin
++  if uid is null then return; end if;
++  select * into entry from public.invite_email_log where id = p_log_id and owner_id = uid;
++  if not found then return; end if;
++  update public.list_invites
++     set emailed_at = entry.prev_emailed_at,
++         email_count = greatest(email_count - 1, 0)
++   where id = entry.invite_id;
++  delete from public.invite_email_log where id = entry.id;
++end $$;
++
+ -- ---------- Function permissions -------------------------------------
+ -- Supabase grants EXECUTE on new functions to anon and authenticated by default, and
+ -- `revoke ... from public` does not remove those explicit grants, so name the roles.
+@@ -501,6 +590,8 @@ revoke execute on function public.is_list_member(uuid)     from public, anon;
+ revoke execute on function public.list_collaborators(uuid) from public, anon;
+ revoke execute on function public.redeem_share(text)       from public, anon;
+ revoke execute on function public.claim_invites()                   from public, anon;
++revoke execute on function public.invite_email_begin(uuid)          from public, anon;
++revoke execute on function public.invite_email_undo(uuid)           from public, anon;
+ revoke execute on function public.set_member_role(uuid, uuid, text) from public, anon;
+ -- get_shared_list is intentionally callable without signing in (anonymous view links).
+ revoke execute on function public.get_shared_list(text) from public;
+diff --git a/tests/invite-email-ui.test.jsx b/tests/invite-email-ui.test.jsx
+new file mode 100644
+index 0000000..0ad4bac
+--- /dev/null
++++ b/tests/invite-email-ui.test.jsx
+@@ -0,0 +1,274 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import { render, screen, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { ToastProvider } from "../src/contexts/ToastContext";
++import { ShareModal } from "../src/components/sharing/ShareModal";
++import { inviteErrorText, inviteMailto } from "../src/utils/invite";
++
++// A backend that can send invite emails, and can be told to fail.
++const h = vi.hoisted(() => ({
++  db: { invites: [] },
++  calls: [],
++  sendFails: null, // an error code to fail with, or null
++}));
++
++vi.mock("../src/contexts/AuthContext", () => ({
++  useAuth: () => ({ user: { id: "me", email: "me@test.dev", name: "Aditya" } }),
++}));
++
++vi.mock("../src/services/api", () => {
++  const log = (name, ...args) => h.calls.push([name, ...args]);
++  return {
++    backendMode: "supabase",
++    api: {
++      capabilities: {
++        auth: true,
++        sharing: true,
++        realtime: false,
++        inviteEmail: true,
++      },
++      listShares: async () => [],
++      collaborators: async () => [],
++      invites: async () => h.db.invites.map((i) => ({ ...i })),
++      inviteByEmail: async (listId, email, role) => {
++        log("inviteByEmail", listId, email, role);
++        const id = `i${h.db.invites.length + 1}`;
++        h.db.invites.push({
++          id,
++          email,
++          role,
++          emailed_at: null,
++          email_count: 0,
++        });
++        return id;
++      },
++      sendInviteEmail: async (id) => {
++        log("sendInviteEmail", id);
++        if (h.sendFails) {
++          throw Object.assign(new Error(h.sendFails), {
++            code: h.sendFails,
++            detail: "",
++          });
++        }
++        const inv = h.db.invites.find((i) => i.id === id);
++        inv.emailed_at = new Date().toISOString();
++        inv.email_count += 1;
++        return { ok: true };
++      },
++      removeInvite: async (id) => {
++        h.db.invites = h.db.invites.filter((i) => i.id !== id);
++      },
++    },
++  };
++});
++
++const list = { id: "L1", title: "Trip & plan #1" };
++const called = (name) => h.calls.filter(([n]) => n === name);
++const mount = async () => {
++  const user = userEvent.setup();
++  render(
++    <ToastProvider>
++      <ShareModal open list={list} onClose={() => {}} />
++    </ToastProvider>,
++  );
++  await screen.findByText("People with access");
++  await waitFor(() =>
++    expect(screen.getByRole("dialog")).toContainElement(document.activeElement),
++  );
++  return user;
++};
++const addPerson = async (user, email) => {
++  await user.type(screen.getByLabelText("Add people"), email);
++  await user.click(screen.getByRole("button", { name: /^add$/i }));
++};
++
++beforeEach(() => {
++  h.db = { invites: [] };
++  h.calls = [];
++  h.sendFails = null;
++});
++
++describe("adding someone emails them", () => {
++  it("saves the invite, emails it, and shows when it was sent", async () => {
++    const user = await mount();
++    expect(screen.getByText(/we email them a link/i)).toBeInTheDocument();
++    await addPerson(user, "Pal@Example.com");
++    expect(
++      await screen.findByText(/invite emailed to pal@example.com/i),
++    ).toBeInTheDocument();
++    expect(called("inviteByEmail")).toEqual([
++      ["inviteByEmail", "L1", "pal@example.com", "viewer"],
++    ]);
++    expect(called("sendInviteEmail")).toEqual([["sendInviteEmail", "i1"]]);
++    expect(await screen.findByText(/^Emailed /)).toBeInTheDocument();
++  });
++
++  it("if email can't be sent, the invite is still saved and the other options are pointed out", async () => {
++    h.sendFails = "not_deployed";
++    const user = await mount();
++    await addPerson(user, "pal@example.com");
++    expect(await screen.findByText("pal@example.com")).toBeInTheDocument();
++    const note = await screen.findByText(/wasn’t sent/i);
++    expect(note).toHaveTextContent(/isn’t set up on this ordly yet/i);
++    expect(note).toHaveTextContent(/email app/i);
++    expect(screen.getByText("Not emailed yet")).toBeInTheDocument();
++    expect(
++      screen.getByRole("link", {
++        name: /open your email app to invite pal@example.com/i,
++      }),
++    ).toBeInTheDocument();
++  });
++});
++
++describe("pending invites", () => {
++  const seed = (over = {}) => {
++    h.db.invites = [
++      {
++        id: "i1",
++        email: "zed@x.com",
++        role: "editor",
++        emailed_at: null,
++        email_count: 0,
++        ...over,
++      },
++    ];
++  };
++
++  it("offers to email an invite that hasn't been emailed, and says what happened", async () => {
++    seed();
++    const user = await mount();
++    expect(screen.getByText("Not emailed yet")).toBeInTheDocument();
++    await user.click(
++      screen.getByRole("button", { name: "Email invite to zed@x.com" }),
++    );
++    expect(
++      await screen.findByText(/invite emailed to zed@x.com/i),
++    ).toBeInTheDocument();
++    expect(called("sendInviteEmail")).toEqual([["sendInviteEmail", "i1"]]);
++    expect(
++      await screen.findByRole("button", { name: "Email again to zed@x.com" }),
++    ).toBeInTheDocument();
++  });
++
++  it("an invite that was emailed shows when, and can be sent again", async () => {
++    seed({
++      emailed_at: new Date(Date.now() - 3 * 3600e3).toISOString(),
++      email_count: 1,
++    });
++    const user = await mount();
++    expect(screen.getByText(/^Emailed .*ago/)).toBeInTheDocument();
++    await user.click(
++      screen.getByRole("button", { name: "Email again to zed@x.com" }),
++    );
++    await waitFor(() => expect(called("sendInviteEmail")).toHaveLength(1));
++  });
++
++  it.each([
++    ["cooldown", /try again in a minute/i],
++    ["too_many_for_invite", /already been emailed 5 times/i],
++    ["hourly_limit", /this hour/i],
++    ["daily_limit", /tomorrow/i],
++    ["unverified", /confirm your own email/i],
++    ["email_failed", /couldn’t send it/i],
++  ])("explains a refusal (%s) in plain words", async (code, words) => {
++    seed();
++    h.sendFails = code;
++    const user = await mount();
++    await user.click(
++      screen.getByRole("button", { name: "Email invite to zed@x.com" }),
++    );
++    expect(await screen.findByText(words)).toBeInTheDocument();
++    expect(screen.getByText("Not emailed yet")).toBeInTheDocument();
++  });
++
++  it("the email-app button is a real mailto link with the message ready", async () => {
++    seed();
++    await mount();
++    const link = screen.getByRole("link", {
++      name: /open your email app to invite zed@x.com/i,
++    });
++    const href = link.getAttribute("href");
++    expect(href.startsWith("mailto:zed@x.com?")).toBe(true);
++    const params = new URL(href).searchParams;
++    expect(params.get("subject")).toBe(
++      "Join my list “Trip & plan #1” on Ordly",
++    );
++    const body = params.get("body");
++    expect(body).toContain("“Trip & plan #1”"); // & and # didn't break the link
++    expect(body).toContain(
++      "you’ll be able to edit it".replace("you’ll", "You’ll"),
++    );
++    expect(body).toContain(`${window.location.origin}/login`);
++    expect(body).toContain("zed@x.com");
++    expect(body.trim().endsWith("Aditya")).toBe(true);
++    expect(href).not.toContain("+"); // email apps show a "+" literally
++  });
++
++  it("removing an invite still works", async () => {
++    seed();
++    const user = await mount();
++    await user.click(
++      screen.getByRole("button", { name: /remove invite for zed@x.com/i }),
++    );
++    await waitFor(() =>
++      expect(screen.queryByText("zed@x.com")).not.toBeInTheDocument(),
++    );
++  });
++});
++
++describe("invite helpers", () => {
++  it("builds a mailto that survives awkward titles and names", () => {
++    const m = inviteMailto({
++      email: "a.b+tag@x.co",
++      listTitle: 'Q&A "plans"\r\nBcc: boss@x.com #1 100%',
++      role: "viewer",
++      inviterName: "Eve\nBcc: x",
++      appUrl: "https://ordly-lists.vercel.app/",
++    });
++    const url = new URL(m.href);
++    expect(url.pathname).toBe("a.b%2Btag@x.co");
++    expect(decodeURIComponent(url.pathname)).toBe("a.b+tag@x.co");
++    expect(url.searchParams.get("subject")).not.toMatch(/[\r\n]/);
++    expect(url.searchParams.get("body")).toContain(
++      "https://ordly-lists.vercel.app/login",
++    );
++    expect(url.searchParams.get("body")).toContain("view it");
++    expect(m.href).not.toMatch(/\r|\n| /);
++  });
++
++  it("every failure has a sentence", () => {
++    for (const code of [
++      "not_deployed",
++      "unreachable",
++      "not_configured",
++      "cooldown",
++      "too_many_for_invite",
++      "hourly_limit",
++      "daily_limit",
++      "unverified",
++      "not_signed_in",
++      "not_allowed",
++      "email_failed",
++      "whatever",
++    ]) {
++      const text = inviteErrorText({ code });
++      expect(text.length).toBeGreaterThan(10);
++      expect(text).not.toContain(
++        code === "whatever" ? "undefined" : "undefined",
++      );
++    }
++    expect(
++      inviteErrorText({
++        code: "not_configured",
++        detail: "RESEND_API_KEY, MAIL_FROM",
++      }),
++    ).toContain("RESEND_API_KEY, MAIL_FROM");
++    expect(
++      inviteErrorText({
++        code: "email_failed",
++        detail: "The domain is not verified.",
++      }),
++    ).toContain("The domain is not verified.");
++    expect(inviteErrorText(undefined)).toBe("The email couldn’t be sent.");
++  });
++});
+diff --git a/tests/invite-function.test.js b/tests/invite-function.test.js
+new file mode 100644
+index 0000000..6c4b660
+--- /dev/null
++++ b/tests/invite-function.test.js
+@@ -0,0 +1,366 @@
++import { describe, expect, it, vi } from "vitest";
++import {
++  buildInviteEmail,
++  esc,
++  handle,
++} from "../supabase/functions/send-invite/index.ts";
++
++const INVITE = "bbbbbbbb-0000-4000-8000-000000000001";
++const ENV = {
++  SUPABASE_URL: "https://proj.supabase.co",
++  SUPABASE_ANON_KEY: "anon-key-123",
++  RESEND_API_KEY: "re_secret_key",
++  MAIL_FROM: "Ordly <invites@mail.example.com>",
++  APP_URL: "https://ordly-lists.vercel.app",
++};
++const env = (o = {}) => {
++  const all = { ...ENV, ...o };
++  return { get: (k) => all[k] };
++};
++const DETAILS = {
++  log_id: "log-1",
++  list_title: "Trip plan",
++  invitee: "pal@example.com",
++  role: "editor",
++  inviter_name: "Aditya",
++};
++const json = (status, body) =>
++  new Response(JSON.stringify(body), {
++    status,
++    headers: { "Content-Type": "application/json" },
++  });
++
++// A pretend Supabase + Resend. Records every call.
++function world({
++  begin = () => json(200, DETAILS),
++  resend = () => json(200, { id: "msg1" }),
++} = {}) {
++  const calls = [];
++  const fetcher = vi.fn(async (url, init) => {
++    const call = {
++      url: String(url),
++      init,
++      body: init?.body ? JSON.parse(init.body) : null,
++    };
++    calls.push(call);
++    if (call.url.endsWith("/rpc/invite_email_begin")) return begin(call);
++    if (call.url.endsWith("/rpc/invite_email_undo")) return json(204, {});
++    if (call.url === "https://api.resend.com/emails") return resend(call);
++    throw new Error("unexpected call " + call.url);
++  });
++  return { calls, fetcher };
++}
++const request = (o = {}) =>
++  new Request("https://proj.supabase.co/functions/v1/send-invite", {
++    method: o.method || "POST",
++    headers: {
++      Origin: "https://ordly-lists.vercel.app",
++      ...(o.auth === null
++        ? {}
++        : { Authorization: o.auth ?? "Bearer user-jwt" }),
++      "Content-Type": "application/json",
++      ...(o.headers || {}),
++    },
++    body:
++      o.method === "GET" || o.method === "OPTIONS"
++        ? undefined
++        : (o.raw ?? JSON.stringify({ invite_id: INVITE, ...(o.body || {}) })),
++  });
++const run = async (req, w = world(), e = env()) => {
++  const res = await handle(req, e, w.fetcher);
++  const text = await res.text();
++  return { res, body: text ? JSON.parse(text) : null, calls: w.calls };
++};
++
++describe("the invite email text", () => {
++  it("says who invited you, to what, and how to open it", () => {
++    const m = buildInviteEmail({
++      inviter: "Aditya",
++      listTitle: "Trip plan",
++      invitee: "pal@example.com",
++      role: "editor",
++      appUrl: "https://ordly-lists.vercel.app/",
++    });
++    expect(m.subject).toBe("Aditya invited you to “Trip plan” on Ordly");
++    expect(m.text).toContain("You will be able to edit it");
++    expect(m.text).toContain("pal@example.com");
++    expect(m.text).toContain("https://ordly-lists.vercel.app/login"); // no double slash
++    expect(m.html).toContain('href="https://ordly-lists.vercel.app/login"');
++    expect(
++      buildInviteEmail({
++        inviter: "A",
++        listTitle: "T",
++        invitee: "x@y.co",
++        role: "viewer",
++        appUrl: "https://a.b",
++      }).text,
++    ).toContain("view it");
++  });
++
++  it("nothing a person typed can inject HTML into the email", () => {
++    const evil = `<script>alert(1)</script><img src=x onerror=alert(1)>"'&`;
++    const m = buildInviteEmail({
++      inviter: evil,
++      listTitle: evil,
++      invitee: `a"><b>@x.co`,
++      role: "viewer",
++      appUrl: "https://a.b",
++    });
++    expect(m.html).not.toContain("<script");
++    expect(m.html).not.toContain("<img");
++    expect(m.html).not.toContain("onerror=alert(1)>");
++    expect(m.html).toContain("&lt;script&gt;");
++    expect(esc(`<>&"'`)).toBe("&lt;&gt;&amp;&quot;&#39;");
++  });
++
++  it("names can't add lines to the subject, and are kept short", () => {
++    const m = buildInviteEmail({
++      inviter: "Eve\r\nBcc: boss@x.com",
++      listTitle: "x".repeat(500),
++      invitee: "a@b.co",
++      role: "viewer",
++      appUrl: "https://a.b",
++    });
++    expect(m.subject).not.toMatch(/[\r\n]/);
++    expect(m.subject.length).toBeLessThan(220);
++    expect(
++      buildInviteEmail({
++        inviter: "",
++        listTitle: "",
++        invitee: "a@b.co",
++        role: "viewer",
++        appUrl: "https://a.b",
++      }).subject,
++    ).toBe("Someone invited you to “a list” on Ordly");
++  });
++});
++
++describe("send-invite: the happy path", () => {
++  it("asks the database first, then sends exactly one email to the invited person", async () => {
++    const { res, body, calls } = await run(request());
++    expect(res.status).toBe(200);
++    expect(body).toMatchObject({ ok: true, sent_to: "pal@example.com" });
++
++    expect(calls.map((c) => c.url)).toEqual([
++      "https://proj.supabase.co/rest/v1/rpc/invite_email_begin",
++      "https://api.resend.com/emails",
++    ]);
++    const [begin, mail] = calls;
++    expect(begin.init.headers.Authorization).toBe("Bearer user-jwt"); // the caller's own login
++    expect(begin.init.headers.apikey).toBe("anon-key-123");
++    expect(begin.body).toEqual({ p_invite_id: INVITE });
++    expect(mail.init.headers.Authorization).toBe("Bearer re_secret_key");
++    expect(mail.init.headers["Idempotency-Key"]).toBe("log-1");
++    expect(mail.body.to).toEqual(["pal@example.com"]);
++    expect(mail.body.from).toBe("Ordly <invites@mail.example.com>");
++    expect(mail.body.subject).toContain("Trip plan");
++    expect(mail.body.html).toContain("Open Ordly");
++  });
++
++  it("never reveals the email service key", async () => {
++    const ok = await handle(request(), env(), world().fetcher);
++    const text = await ok.text();
++    expect(text).not.toContain("re_secret_key");
++    expect(text).not.toContain("anon-key-123");
++    const failed = await handle(
++      request(),
++      env(),
++      world({ resend: () => json(401, { message: "API key is invalid" }) })
++        .fetcher,
++    );
++    expect(await failed.text()).not.toContain("re_secret_key");
++  });
++});
++
++describe("send-invite: who may call it", () => {
++  it("refuses without a login, before touching anything", async () => {
++    for (const auth of [null, "", "Basic abc", "Bearer"]) {
++      const { res, body, calls } = await run(request({ auth }));
++      expect(res.status).toBe(401);
++      expect(body.error).toBe("not_signed_in");
++      expect(calls).toHaveLength(0);
++    }
++  });
++
++  it("takes only an invite id: nothing else from the browser is used", async () => {
++    const { calls } = await run(
++      request({
++        body: {
++          to: "victim@x.com",
++          subject: "hi",
++          html: "<b>x</b>",
++          from: "ceo@bank.com",
++          list_title: "Evil",
++        },
++      }),
++    );
++    const mail = calls.find((c) => c.url.endsWith("/emails")).body;
++    expect(mail.to).toEqual(["pal@example.com"]);
++    expect(mail.from).toBe("Ordly <invites@mail.example.com>");
++    expect(mail.subject).not.toContain("Evil");
++  });
++
++  it("rejects a missing, malformed or hostile invite id", async () => {
++    for (const body of [
++      { invite_id: "" },
++      { invite_id: "123" },
++      { invite_id: `${INVITE}' or 1=1` },
++      { invite_id: 5 },
++      { invite_id: null },
++    ]) {
++      const { res, calls } = await run(request({ raw: JSON.stringify(body) }));
++      expect(res.status).toBe(400);
++      expect(calls).toHaveLength(0);
++    }
++    expect((await run(request({ raw: "not json" }))).res.status).toBe(400);
++    expect((await run(request({ raw: "" }))).res.status).toBe(400);
++  });
++
++  it("only answers POST (and the browser's OPTIONS check)", async () => {
++    expect((await run(request({ method: "GET" }))).res.status).toBe(405);
++    expect((await run(request({ method: "PUT" }))).res.status).toBe(405);
++    const options = await run(request({ method: "OPTIONS", auth: null }));
++    expect(options.res.status).toBe(204);
++    expect(options.res.headers.get("Access-Control-Allow-Origin")).toBe(
++      "https://ordly-lists.vercel.app",
++    );
++    expect(options.res.headers.get("Access-Control-Allow-Headers")).toContain(
++      "authorization",
++    );
++  });
++});
++
++describe("send-invite: websites allowed to call it", () => {
++  const originOf = async (origin, e) =>
++    (
++      await run(request({ headers: { Origin: origin } }), world(), e)
++    ).res.headers.get("Access-Control-Allow-Origin");
++  it("your own site and local development, nobody else", async () => {
++    expect(await originOf("https://ordly-lists.vercel.app")).toBe(
++      "https://ordly-lists.vercel.app",
++    );
++    expect(await originOf("http://localhost:5173")).toBe(
++      "http://localhost:5173",
++    );
++    expect(await originOf("https://evil.example")).toBeNull();
++    expect(
++      await originOf("https://ordly-lists.vercel.app.evil.example"),
++    ).toBeNull();
++  });
++  it("extra sites can be allowed with ALLOWED_ORIGINS", async () => {
++    expect(
++      await originOf(
++        "https://preview-1.vercel.app",
++        env({
++          ALLOWED_ORIGINS: "https://preview-1.vercel.app, https://other.app",
++        }),
++      ),
++    ).toBe("https://preview-1.vercel.app");
++  });
++});
++
++describe("send-invite: when the database says no", () => {
++  const refuse = (message, status = 400) =>
++    world({ begin: () => json(status, { code: "P0001", message }) });
++  it.each([
++    ["not_allowed", 403, "not_allowed"],
++    ["unverified", 403, "unverified"],
++    ["cooldown", 429, "cooldown"],
++    ["too_many_for_invite", 429, "too_many_for_invite"],
++    ["hourly_limit", 429, "hourly_limit"],
++    ["daily_limit", 429, "daily_limit"],
++  ])("%s -> %i", async (message, status, code) => {
++    const w = refuse(message);
++    const { res, body, calls } = await run(request(), w);
++    expect(res.status).toBe(status);
++    expect(body.error).toBe(code);
++    expect(calls.some((c) => c.url.includes("resend"))).toBe(false); // nothing was sent
++  });
++
++  it("an expired login asks to sign in again", async () => {
++    const { res, body } = await run(
++      request(),
++      world({ begin: () => json(401, { message: "JWT expired" }) }),
++    );
++    expect(res.status).toBe(401);
++    expect(body.error).toBe("not_signed_in");
++  });
++
++  it("anything unexpected from the database is a plain error, with no details leaked", async () => {
++    const { res, body } = await run(
++      request(),
++      world({
++        begin: () =>
++          json(500, { message: "relation secret_table does not exist" }),
++      }),
++    );
++    expect(res.status).toBe(502);
++    expect(JSON.stringify(body)).not.toContain("secret_table");
++  });
++
++  it("a database that can't be reached", async () => {
++    const w = world();
++    w.fetcher.mockRejectedValueOnce(new Error("network down"));
++    const { res, body } = await run(request(), w);
++    expect(res.status).toBe(502);
++    expect(body.error).toBe("database_error");
++  });
++});
++
++describe("send-invite: when the email service fails", () => {
++  it("gives the allowance back and explains", async () => {
++    const w = world({
++      resend: () =>
++        json(403, { message: "The mail.example.com domain is not verified." }),
++    });
++    const { res, body, calls } = await run(request(), w);
++    expect(res.status).toBe(502);
++    expect(body).toEqual({
++      error: "email_failed",
++      provider_status: 403,
++      provider_message: "The mail.example.com domain is not verified.",
++    });
++    const undo = calls.find((c) => c.url.endsWith("/rpc/invite_email_undo"));
++    expect(undo.body).toEqual({ p_log_id: "log-1" });
++    expect(undo.init.headers.Authorization).toBe("Bearer user-jwt");
++  });
++
++  it("also when the email service can't be reached", async () => {
++    const w = world({
++      resend: () => {
++        throw new Error("timeout");
++      },
++    });
++    const { res, body, calls } = await run(request(), w);
++    expect(res.status).toBe(502);
++    expect(body.error).toBe("email_failed");
++    expect(calls.some((c) => c.url.endsWith("/rpc/invite_email_undo"))).toBe(
++      true,
++    );
++  });
++});
++
++describe("send-invite: setup problems are reported clearly", () => {
++  it("names the missing settings (never their values)", async () => {
++    const { res, body, calls } = await run(
++      request(),
++      world(),
++      env({ RESEND_API_KEY: "", MAIL_FROM: undefined }),
++    );
++    expect(res.status).toBe(503);
++    expect(body).toEqual({
++      error: "not_configured",
++      missing: ["RESEND_API_KEY", "MAIL_FROM"],
++    });
++    expect(calls).toHaveLength(0);
++  });
++  it("APP_URL must be a web address", async () => {
++    const { res, body } = await run(
++      request(),
++      world(),
++      env({ APP_URL: "ordly-lists.vercel.app" }),
++    );
++    expect(res.status).toBe(503);
++    expect(body.missing[0]).toContain("APP_URL");
++  });
++});
