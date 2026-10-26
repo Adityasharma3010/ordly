@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArchiveRestore } from "lucide-react";
 import { useWorkspace } from "../../contexts/WorkspaceContext";
@@ -7,6 +7,7 @@ import { api } from "../../services/api";
 import { getStats } from "../../utils/listStats";
 import { plural } from "../../utils/format";
 import { buildRows } from "../../utils/tree";
+import { focusQueue } from "../../utils/focus";
 import { cleanTime } from "../../utils/due";
 import { collectTags, listTypeOf } from "../../utils/meta";
 import { listAncestorIds } from "../../utils/listTree";
@@ -23,6 +24,7 @@ import { ChecklistToolbar } from "../checklist/ChecklistToolbar";
 import { Checklist } from "../checklist/Checklist";
 import { EmptyItems, NoMatches } from "../checklist/EmptyState";
 import { ShareModal } from "../sharing/ShareModal";
+import { FocusMode } from "../focus/FocusMode";
 
 export function ListWorkspace({ list, actions }) {
   const ws = useWorkspace();
@@ -34,7 +36,8 @@ export function ListWorkspace({ list, actions }) {
   const [sort, setSort] = usePersistentState("ordly.sort", "custom");
   const [query, setQuery] = useState(params.get("q") || "");
   const [tag, setTag] = useState(null); // show only items with this tag
-  const [modal, setModal] = useState(null); // 'edit' | 'share' | 'template'
+  const [modal, setModal] = useState(null); // 'edit' | 'share' | 'template' | 'focus'
+  const closeModal = useCallback(() => setModal(null), []);
 
   const canEdit = list.role !== "viewer";
   const isOwner = list.role === "owner";
@@ -65,6 +68,10 @@ export function ListWorkspace({ list, actions }) {
   const allTags = useMemo(() => collectTags(ws.lists), [ws.lists]);
   const dueCount = useMemo(
     () => buildRows(list.items, { filter: "due" }).length,
+    [list.items],
+  );
+  const hasOpenTasks = useMemo(
+    () => focusQueue(list.items).length > 0,
     [list.items],
   );
   const crumbs = listAncestorIds(ws.lists, list.id)
@@ -112,6 +119,12 @@ export function ListWorkspace({ list, actions }) {
         onMove={() => actions.askMove(list)}
         onAddTemplate={() => setModal("addTemplate")}
         onDelete={() => actions.askDelete(list)}
+        onFocus={
+          canEdit && type !== "notes" && !list.archived
+            ? () => setModal("focus")
+            : undefined
+        }
+        focusDisabled={!hasOpenTasks}
         crumbs={crumbs}
         onCrumb={(id) => navigate(`/app/${id}`)}
         done={stats.isComplete}
@@ -281,6 +294,12 @@ export function ListWorkspace({ list, actions }) {
             });
           return result;
         }}
+      />
+      <FocusMode
+        open={modal === "focus"}
+        onClose={closeModal}
+        list={list}
+        onToggle={(id, completed) => ws.toggleItem(list.id, id, completed)}
       />
       <ShareModal
         open={modal === "share"}

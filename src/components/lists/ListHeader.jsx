@@ -5,6 +5,7 @@ import {
   BookmarkPlus,
   ChevronRight,
   Copy,
+  Crosshair,
   FolderInput,
   LayoutTemplate,
   MoreHorizontal,
@@ -32,6 +33,8 @@ export function ListHeader({
   onMove,
   onAddTemplate,
   onDelete,
+  onFocus,
+  focusDisabled = false,
   crumbs = [],
   onCrumb,
   done = false,
@@ -49,6 +52,16 @@ export function ListHeader({
     focus === "description" ? draft.description : list.description;
 
   const items = [
+    ...(onFocus
+      ? [
+          {
+            label: "Focus mode",
+            icon: Crosshair,
+            onClick: onFocus,
+            disabled: focusDisabled,
+          },
+        ]
+      : []),
     {
       label: "Edit details",
       icon: Pencil,
@@ -174,6 +187,17 @@ export function ListHeader({
                 className={`size-[18px] ${list.favorite ? "fill-accent text-accent" : ""}`}
               />
             </IconButton>
+          )}
+          {onFocus && (
+            <Button
+              size="sm"
+              onClick={onFocus}
+              disabled={focusDisabled}
+              className="hidden sm:inline-flex"
+            >
+              <Crosshair className="size-3.5" aria-hidden />
+              Focus
+            </Button>
           )}
           {canShare && (
             <Button
