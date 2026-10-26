@@ -65,3 +65,13 @@ The message in Ordly says what is wrong:
 
 Nothing is lost when sending fails: the invite is saved either way, and "Open in your email app"
 always works as a backup.
+
+## Richer invite emails (update)
+
+The email can show the list's own icon and colour, a personal note from the person inviting, and a small preview of the list. To turn that on for an existing project:
+
+1. Supabase → SQL Editor → New query → paste `supabase/invite-email-extras.sql` → Run. (Run `invite-emails.sql` first if you haven't.) Safe to run twice.
+2. Supabase → Edge Functions → `send-invite` → paste the new `index.ts` over the old code → Deploy updates.
+3. Put `public/email-logo.gif` on your site (it is in the project; commit and push so Vercel deploys it). The email loads the logo from `https://<your site>/email-logo.gif`.
+
+The Share dialog gets an optional "Personal note" box and a "Show a few items from the list in the email" switch. Nothing else needs setting up, and no new secrets.

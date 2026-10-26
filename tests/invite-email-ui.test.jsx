@@ -9,6 +9,7 @@ import { inviteErrorText, inviteMailto } from "../src/utils/invite";
 const h = vi.hoisted(() => ({
   db: { invites: [] },
   calls: [],
+  extras: [], // the note / preview choice sent with each invite
   sendFails: null, // an error code to fail with, or null
 }));
 
@@ -30,8 +31,9 @@ vi.mock("../src/services/api", () => {
       listShares: async () => [],
       collaborators: async () => [],
       invites: async () => h.db.invites.map((i) => ({ ...i })),
-      inviteByEmail: async (listId, email, role) => {
+      inviteByEmail: async (listId, email, role, extra) => {
         log("inviteByEmail", listId, email, role);
+        h.extras.push(extra);
         const id = `i${h.db.invites.length + 1}`;
         h.db.invites.push({
           id,
@@ -85,6 +87,7 @@ const addPerson = async (user, email) => {
 beforeEach(() => {
   h.db = { invites: [] };
   h.calls = [];
+  h.extras = [];
   h.sendFails = null;
 });
 
@@ -101,6 +104,27 @@ describe("adding someone emails them", () => {
     ]);
     expect(called("sendInviteEmail")).toEqual([["sendInviteEmail", "i1"]]);
     expect(await screen.findByText(/^Emailed /)).toBeInTheDocument();
+  });
+
+  it("sends the personal note and the preview choice with the invite", async () => {
+    const user = await mount();
+    // the preview is on by default, and the note starts empty
+    expect(
+      screen.getByRole("switch", { name: /show a few items/i }),
+    ).toBeChecked();
+    await user.type(
+      screen.getByLabelText(/personal note/i),
+      "  Here you go!  ",
+    );
+    expect(screen.getByText("16/300")).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: /show a few items/i }));
+    await addPerson(user, "pal@example.com");
+    await screen.findByText(/invite emailed to pal@example.com/i);
+    expect(h.extras).toEqual([
+      { message: "Here you go!", includePreview: false },
+    ]);
+    // the note box is cleared for the next person
+    expect(screen.getByLabelText(/personal note/i)).toHaveValue("");
   });
 
   it("if email can't be sent, the invite is still saved and the other options are pointed out", async () => {

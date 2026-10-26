@@ -18,6 +18,7 @@ import { Button, IconButton } from "../ui/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { inputCls } from "../ui/Field";
 import { Select } from "../ui/Select";
+import { Switch } from "../ui/Switch";
 import { Skeleton } from "../ui/Skeleton";
 import { api } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
@@ -73,6 +74,9 @@ export function ShareModal({ open, onClose, list }) {
   const [busy, setBusy] = useState(""); // key of the row being changed
   const [copied, setCopied] = useState(false);
   const [email, setEmail] = useState("");
+  const [note, setNote] = useState(""); // optional message shown in the invite email
+  const [preview, setPreview] = useState(true); // show a few items in the invite email
+  const canEmail = api.capabilities.inviteEmail;
   const [inviteRole, setInviteRole] = useState("viewer");
   const [emailError, setEmailError] = useState("");
   const [confirmOff, setConfirmOff] = useState(false);
@@ -203,12 +207,19 @@ export function ShareModal({ open, onClose, list }) {
     if (addr === (user?.email || "").toLowerCase())
       return setEmailError("That’s your own email. You already own this list.");
     setEmailError("");
-    const canEmail = api.capabilities.inviteEmail;
     await run(
       "invite",
       async () => {
-        const id = await api.inviteByEmail(list.id, addr, inviteRole);
+        const id = await api.inviteByEmail(
+          list.id,
+          addr,
+          inviteRole,
+          canEmail
+            ? { message: note.trim(), includePreview: preview }
+            : undefined,
+        );
         setEmail("");
+        setNote("");
         if (!canEmail || !id) return;
         // Email it straight away. If that can't be done the invite is still saved, and the
         // person can use the email-app button on its row instead.
@@ -395,6 +406,45 @@ export function ShareModal({ open, onClose, list }) {
                   Add
                 </Button>
               </div>
+              {canEmail && (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label
+                      htmlFor="share-note"
+                      className="mb-1.5 flex items-baseline justify-between text-[13px] font-medium text-muted"
+                    >
+                      <span>
+                        Personal note{" "}
+                        <span className="font-normal text-faint">
+                          (optional)
+                        </span>
+                      </span>
+                      <span className="text-xs font-normal text-faint tabular-nums">
+                        {note.length}/300
+                      </span>
+                    </label>
+                    <textarea
+                      id="share-note"
+                      value={note}
+                      maxLength={300}
+                      rows={2}
+                      placeholder="Hey, here’s the list for the weekend…"
+                      onChange={(e) => setNote(e.target.value)}
+                      className={`${inputCls} w-full resize-none`}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[13px] text-muted">
+                      Show a few items from the list in the email
+                    </span>
+                    <Switch
+                      checked={preview}
+                      onChange={setPreview}
+                      label="Show a few items from the list in the email"
+                    />
+                  </div>
+                </div>
+              )}
               {emailError ? (
                 <p
                   id="share-email-err"

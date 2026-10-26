@@ -110,6 +110,8 @@ create table public.list_invites (
   created_at timestamptz not null default now(),
   emailed_at  timestamptz,
   email_count smallint not null default 0,
+  message     text check (message is null or char_length(message) <= 300),
+  include_preview boolean not null default true,
   unique (list_id, email)
 );
 
@@ -510,7 +512,8 @@ declare
 begin
   if uid is null then raise exception 'not_allowed'; end if;
 
-  select i.id, i.email, i.role, i.emailed_at, i.email_count, l.id as list_id, l.title
+  select i.id, i.email, i.role, i.emailed_at, i.email_count, i.message, i.include_preview,
+         l.id as list_id, l.title
     into inv
     from public.list_invites i
     join public.lists l on l.id = i.list_id
@@ -553,7 +556,9 @@ begin
     'list_title', inv.title,
     'invitee', inv.email,
     'role', inv.role,
-    'inviter_name', who
+    'inviter_name', who,
+    'message', inv.message,
+    'include_preview', inv.include_preview
   );
 end $$;
 

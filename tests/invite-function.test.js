@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  accentFor,
   buildInviteEmail,
+  buildPreview,
   esc,
   handle,
 } from "../supabase/functions/send-invite/index.ts";
@@ -34,6 +36,8 @@ const json = (status, body) =>
 function world({
   begin = () => json(200, DETAILS),
   resend = () => json(200, { id: "msg1" }),
+  lists = () => json(200, []),
+  items = () => json(200, []),
 } = {}) {
   const calls = [];
   const fetcher = vi.fn(async (url, init) => {
@@ -45,6 +49,8 @@ function world({
     calls.push(call);
     if (call.url.endsWith("/rpc/invite_email_begin")) return begin(call);
     if (call.url.endsWith("/rpc/invite_email_undo")) return json(204, {});
+    if (call.url.includes("/rest/v1/lists?")) return lists(call);
+    if (call.url.includes("/rest/v1/list_items?")) return items(call);
     if (call.url === "https://api.resend.com/emails") return resend(call);
     throw new Error("unexpected call " + call.url);
   });
@@ -113,7 +119,7 @@ describe("the invite email text", () => {
     expect(editor.html).toContain("Shared with me");
     expect(editor.html).toContain("Open Ordly");
     expect(editor.html).toContain(
-      '<img src="https://ordly-lists.vercel.app/email-logo.png"',
+      '<img src="https://ordly-lists.vercel.app/email-logo.gif"',
     );
     // the plain link is printed too, for when the button doesn't work
     expect(
@@ -398,5 +404,242 @@ describe("send-invite: setup problems are reported clearly", () => {
     );
     expect(res.status).toBe(503);
     expect(body.missing[0]).toContain("APP_URL");
+  });
+});
+
+const LIST_ID = "cccccccc-0000-4000-8000-000000000001";
+const row = (id, text, extra = {}) => ({
+  id,
+  text,
+  parent_id: null,
+  has_checkbox: true,
+  completed: false,
+  position: Number(id.replace(/\D/g, "")) || 0,
+  ...extra,
+});
+
+describe("the list preview", () => {
+  it("shows the first items and counts progress the way the app does", () => {
+    const p = buildPreview(
+      [
+        row("a1", "Plan trip"),
+        row("b2", "Book flights", { parent_id: "a1", completed: true }),
+        row("c3", "Pack bag", { parent_id: "a1" }),
+        row("d4", "Water plants", { completed: true }),
+        row("e5", "Heading", { has_checkbox: false }),
+      ],
+      3,
+    );
+    // the parent counts through its sub-tasks (1 of 2), plus "Water plants" (1 of 1)
+    expect([p.done, p.total]).toEqual([2, 3]);
+    expect(p.items.map((i) => i.text)).toEqual([
+      "Plan trip",
+      "Water plants",
+      "Heading",
+    ]);
+    expect(p.items.map((i) => i.done)).toEqual([false, true, false]);
+    expect(p.items[2].box).toBe(false);
+    expect(p.more).toBe(0);
+    expect(buildPreview([row("a1", "x"), row("b2", "y")], 1).more).toBe(1);
+  });
+
+  it("a parent is done exactly when all its sub-tasks are", () => {
+    const p = buildPreview([
+      row("a1", "Parent", { completed: true }), // its own tick is ignored
+      row("b2", "Child", { parent_id: "a1" }),
+    ]);
+    expect(p.items[0].done).toBe(false);
+    expect([p.done, p.total]).toEqual([0, 1]);
+  });
+
+  it("an item whose parent is missing still shows (never disappears)", () => {
+    expect(
+      buildPreview([row("a1", "Lost", { parent_id: "zzz" })]).items,
+    ).toHaveLength(1);
+  });
+});
+
+describe("the list colour", () => {
+  it("uses the list's preset or custom colour, and amber for anything else", () => {
+    expect(accentFor("sky")).toBe("#6db6f1");
+    expect(accentFor("#ABCDEF")).toBe("#abcdef");
+    expect(accentFor("system")).toBe("#f0b24b");
+    expect(accentFor("red;background:url(x)")).toBe("#f0b24b");
+    expect(accentFor(null)).toBe("#f0b24b");
+  });
+});
+
+describe("the richer invite email", () => {
+  const base = {
+    inviter: "Aditya",
+    listTitle: "Groceries",
+    invitee: "pal@example.com",
+    role: "viewer",
+    appUrl: "https://ordly-lists.vercel.app",
+  };
+  const preview = {
+    items: [
+      { text: "Milk", box: true, done: true },
+      { text: "Eggs", box: true, done: false },
+      { text: "Aisle notes", box: false, done: false },
+    ],
+    more: 2,
+    done: 1,
+    total: 4,
+  };
+
+  it("uses the list's icon and colour, the note, the items and the progress", () => {
+    const m = buildInviteEmail({
+      ...base,
+      icon: "🛒",
+      color: "sky",
+      message: "Here you go!\nSee you soon",
+      preview,
+    });
+    expect(m.html).toContain("🛒");
+    expect(m.html).toContain("#6db6f1");
+    expect(m.html).not.toContain("#f0b24b"); // the default amber isn't used
+    expect(m.html).toContain("Here you go!<br>See you soon");
+    expect(m.html).toContain("A look inside");
+    expect(m.html).toContain("Milk");
+    expect(m.html).toContain("line-through");
+    expect(m.html).toContain("+ 2 more items");
+    expect(m.html).toContain("<b>1</b> of 4 done");
+    expect(m.html).toContain('width="25%"');
+    expect(m.text).toContain("“Here you go!\nSee you soon”");
+    expect(m.text).toContain("[x] Milk");
+    expect(m.text).toContain("[ ] Eggs");
+    expect(m.text).toContain("- Aisle notes");
+    expect(m.text).toContain("1 of 4 done");
+  });
+
+  it("without any of it, it is the plain amber email", () => {
+    const m = buildInviteEmail(base);
+    expect(m.html).not.toContain("A look inside");
+    expect(m.html).not.toContain("quote");
+    expect(m.html).toContain("#f0b24b");
+  });
+
+  it("the button's text stays readable on dark and light colours", () => {
+    expect(buildInviteEmail({ ...base, color: "#101010" }).html).toContain(
+      "background:#101010;color:#ffffff",
+    );
+    expect(buildInviteEmail({ ...base, color: "#f0f0a0" }).html).toContain(
+      "background:#f0f0a0;color:#17130a",
+    );
+  });
+
+  it("nothing in the note, the items or the icon can inject HTML", () => {
+    const evil = `<script>alert(1)</script><img src=x onerror=alert(1)>"'&`;
+    const m = buildInviteEmail({
+      ...base,
+      icon: evil,
+      message: evil,
+      color: evil,
+      preview: { ...preview, items: [{ text: evil, box: true, done: false }] },
+    });
+    expect(m.html).not.toContain("<script");
+    expect(m.html).not.toContain("<img src=x");
+    expect(m.html).not.toContain("onerror=alert(1)>");
+    expect(m.html.match(/<img/g)).toHaveLength(1); // only the logo
+    expect(m.html).toContain("&lt;script&gt;");
+  });
+
+  it("the note is capped, and odd characters are dropped", () => {
+    const m = buildInviteEmail({
+      ...base,
+      message: "a\u0000b\u202Ec" + "x".repeat(400),
+    });
+    expect(m.html).toContain("abc");
+    expect(m.html).not.toContain("x".repeat(301));
+    expect(m.html).not.toContain("\u0000");
+  });
+});
+
+describe("send-invite: what the email shows about the list", () => {
+  const withList = (o = {}) =>
+    world({
+      begin: () =>
+        json(200, {
+          ...DETAILS,
+          list_id: LIST_ID,
+          message: "Hello there",
+          include_preview: true,
+          ...o.details,
+        }),
+      lists: () => json(200, [{ icon: "✈️", color: "violet" }]),
+      items: () =>
+        json(200, [
+          row("a1", "Book flights", { completed: true }),
+          row("b2", "Pack bag"),
+        ]),
+      ...o.world,
+    });
+
+  it("reads the list with the caller's own login and puts it in the email", async () => {
+    const w = withList();
+    const { res, calls } = await run(request(), w);
+    expect(res.status).toBe(200);
+    const reads = calls.filter((c) => c.url.includes("/rest/v1/l"));
+    expect(reads).toHaveLength(2);
+    for (const c of reads) {
+      expect(c.init.headers.Authorization).toBe("Bearer user-jwt");
+      expect(c.init.headers.apikey).toBe("anon-key-123");
+      expect(c.url).toContain(LIST_ID);
+    }
+    const mail = calls.find(
+      (c) => c.url === "https://api.resend.com/emails",
+    ).body;
+    expect(mail.html).toContain("✈️");
+    expect(mail.html).toContain("#a996f6");
+    expect(mail.html).toContain("Hello there");
+    expect(mail.html).toContain("Book flights");
+    expect(mail.html).toContain("<b>1</b> of 2 done");
+  });
+
+  it("leaves the items out when the sender turned the preview off", async () => {
+    const { res, calls } = await run(
+      request(),
+      withList({ details: { include_preview: false } }),
+    );
+    expect(res.status).toBe(200);
+    expect(calls.some((c) => c.url.includes("/rest/v1/list_items"))).toBe(
+      false,
+    );
+    const mail = calls.find(
+      (c) => c.url === "https://api.resend.com/emails",
+    ).body;
+    expect(mail.html).not.toContain("A look inside");
+    expect(mail.html).toContain("✈️"); // the icon and colour still show
+  });
+
+  it("still sends the invite if the list can't be read", async () => {
+    const { res, calls } = await run(
+      request(),
+      withList({
+        world: {
+          lists: () => json(500, { message: "boom" }),
+          items: () => {
+            throw new Error("network down");
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const mail = calls.find(
+      (c) => c.url === "https://api.resend.com/emails",
+    ).body;
+    expect(mail.html).toContain("Hello there");
+    expect(mail.html).not.toContain("A look inside");
+    expect(mail.html).toContain("#f0b24b");
+  });
+
+  it("never builds a database address from a list id that isn't a uuid", async () => {
+    const { res, calls } = await run(
+      request(),
+      withList({ details: { list_id: "x&select=*" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(calls.some((c) => c.url.includes("/rest/v1/l"))).toBe(false);
   });
 });

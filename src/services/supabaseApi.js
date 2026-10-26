@@ -348,11 +348,23 @@ export const supabaseApi = {
     return data || [];
   },
   // Adding the same email again just changes its role.
-  async inviteByEmail(listId, email, role) {
+  // `extra` ({ message, includePreview }) is what the invite email shows besides the list name;
+  // leave it out (for example when only changing a role) and those stay as they were.
+  async inviteByEmail(listId, email, role, extra) {
     const { data, error } = await supabase
       .from("list_invites")
       .upsert(
-        { list_id: listId, email: email.trim().toLowerCase(), role },
+        {
+          list_id: listId,
+          email: email.trim().toLowerCase(),
+          role,
+          ...(extra
+            ? {
+                message: extra.message?.trim().slice(0, 300) || null,
+                include_preview: extra.includePreview !== false,
+              }
+            : {}),
+        },
         { onConflict: "list_id,email" },
       )
       .select("id")
