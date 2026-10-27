@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { TriangleAlert } from "lucide-react";
 import { AppShell } from "../components/layout/AppShell";
@@ -18,6 +18,7 @@ import { useWorkspace } from "../contexts/WorkspaceContext";
 import { useListActions } from "../hooks/useListActions";
 import { VIEWS } from "../utils/listStats";
 import { playWorkspaceIntro } from "../lib/animations";
+import { takePendingNext } from "../utils/pendingNext";
 
 const SAMPLE = [
   ["Add your first task above and press Enter", true],
@@ -54,6 +55,14 @@ export default function WorkspacePage() {
   const [createParent, setCreateParent] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Signed up from an invite email and confirmed by link? That lands on /app, so carry on to
+  // the list they were invited to.
+  useEffect(() => {
+    if (listId) return;
+    const next = takePendingNext();
+    if (next) navigate(next, { replace: true });
+  }, [listId, navigate]);
 
   const view = VIEWS[params.get("view")] ? params.get("view") : "all";
   const q = params.get("q") || "";

@@ -51,6 +51,7 @@ export type InviteDetails = {
   invitee: string;
   role: string;
   appUrl: string;
+  listId?: string | null; // when given, the button opens this list directly
   message?: string | null; // the inviter's personal note
   icon?: string | null; // the list's emoji
   color?: string | null; // the list's colour (a preset name or #rrggbb)
@@ -206,7 +207,12 @@ export function buildInviteEmail(d: InviteDetails) {
   const isEditor = d.role === "editor";
   const can = isEditor ? "edit" : "view";
   const base = d.appUrl.replace(/\/+$/, "");
-  const link = `${base}/login`;
+  // With the list's id the button goes straight to the list: someone already signed in lands
+  // on it, and someone who isn't is sent to sign in first and then brought back to it.
+  const listId =
+    typeof d.listId === "string" && UUID.test(d.listId) ? d.listId : null;
+  const link = listId ? `${base}/app/${listId}` : `${base}/login`;
+  const cta = listId ? "Open the list" : "Open Ordly";
   // The logo is a GIF in /public (email apps block SVG), loaded from the live site.
   const logoUrl = `${base}/email-logo.gif`;
   const subject = `${inviter} invited you to “${title}” on Ordly`;
@@ -233,6 +239,9 @@ export function buildInviteEmail(d: InviteDetails) {
   const softDark = mix(accent, "#17181c", 0.72);
   const trackDark = mix(accent, "#17181c", 0.7);
   const pillDark = mix(accent, "#17181c", 0.5);
+  // hover: a touch deeper on light backgrounds, a touch brighter on dark ones
+  const hover = mix(accent, "#000000", 0.14);
+  const hoverDark = mix(accent, "#ffffff", 0.2);
   const label = mix(accent, "#000000", 0.45);
   const labelDark = mix(accent, "#ffffff", 0.15);
 
@@ -258,13 +267,17 @@ export function buildInviteEmail(d: InviteDetails) {
         ]
       : []),
     "",
-    `To open it, sign in (or create an account) with this email address, ${d.invitee}:`,
+    listId
+      ? `Open the list (you will be asked to sign in, or create an account, with ${d.invitee}):`
+      : `To open it, sign in (or create an account) with this email address, ${d.invitee}:`,
     link,
     "",
     "How to join:",
     "1. Open the link above.",
     `2. Sign in, or create an account, using ${d.invitee}. It has to be this address.`,
-    "3. Find the list under “Shared with me”.",
+    listId
+      ? "3. You land right on the list. It also stays under “Shared with me”."
+      : "3. Find the list under “Shared with me”.",
     "",
     "If you weren’t expecting this, you can ignore this email. Nothing happens unless you sign in with this address.",
     "",
@@ -329,6 +342,8 @@ export function buildInviteEmail(d: InviteDetails) {
 <meta name="supported-color-schemes" content="light dark">
 <title>${esc(subject)}</title>
 <style>
+  a.btn:hover{background:${hover}!important;color:${inkOn(hover)}!important}
+  a.lnk:hover{text-decoration:none!important}
   @media (max-width:560px){ .px{padding-left:20px!important;padding-right:20px!important} .h1{font-size:25px!important} }
   @media (prefers-color-scheme:dark){
     .page{background:#0e0f12!important} .card{background:#17181c!important;border-color:#2a2c33!important}
@@ -336,6 +351,7 @@ export function buildInviteEmail(d: InviteDetails) {
     .panel{background:${tintDark}!important;border-color:${accent}!important} .rule{border-color:${softDark}!important}
     .avatar{background:${softDark}!important;color:${labelDark}!important} .step{background:${softDark}!important;color:${labelDark}!important}
     .pill{background:${pillDark}!important;color:#f2f3f5!important} .lnk{color:${labelDark}!important} .track{background:${trackDark}!important}
+    a.btn:hover{background:${hoverDark}!important;color:${inkOn(hoverDark)}!important}
     .tickbox{border-color:#5b5f6b!important} .tile{background:${softDark}!important}
   }
 </style></head>
@@ -372,15 +388,24 @@ export function buildInviteEmail(d: InviteDetails) {
       </table>
     </td></tr>
     <tr><td class="px" style="padding:22px 32px 0">
-      <p class="ink" style="margin:0 0 18px;font:15px/1.6 ${sans};color:#1b1f27">You will be able to <b>${can}</b> this list. Sign in (or create an account) with <b>${esc(d.invitee)}</b> and it will appear under “Shared with me”.</p>
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-radius:10px;background:${accent}"><a href="${esc(link)}" style="display:inline-block;background:${accent};color:${onAccent};text-decoration:none;font:600 15px/1 ${sans};padding:14px 24px;border-radius:10px">Open Ordly</a></td></tr></table>
+      <p class="ink" style="margin:0 0 18px;font:15px/1.6 ${sans};color:#1b1f27">You will be able to <b>${can}</b> this list. ${
+        listId
+          ? `Already signed in as <b>${esc(d.invitee)}</b>? The button takes you straight to it. Otherwise sign in or create an account with that address, and we’ll bring you right back to it.`
+          : `Sign in (or create an account) with <b>${esc(d.invitee)}</b> and it will appear under “Shared with me”.`
+      }</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-radius:10px;background:${accent}"><a class="btn" href="${esc(link)}" style="display:inline-block;background:${accent};color:${onAccent};text-decoration:none;font:600 15px/1 ${sans};padding:14px 24px;border-radius:10px;transition:background-color .15s ease">${cta}</a></td></tr></table>
     </td></tr>
     <tr><td class="px" style="padding:28px 32px 0">
       <div class="ink" style="margin:0 0 12px;font:600 13px/1 ${sans};color:#1b1f27">How to join</div>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-        ${step(1, "Open Ordly with the button above.")}
+        ${step(1, listId ? "Tap <b>Open the list</b> above." : "Open Ordly with the button above.")}
         ${step(2, `Sign in, or create an account, using <b>${esc(d.invitee)}</b>. It has to be this exact address.`)}
-        ${step(3, "Find the list under <b>Shared with me</b> in the sidebar.")}
+        ${step(
+          3,
+          listId
+            ? "You land right on the list. It also stays under <b>Shared with me</b> in the sidebar."
+            : "Find the list under <b>Shared with me</b> in the sidebar.",
+        )}
       </table>
     </td></tr>
     <tr><td class="px" style="padding:6px 32px 0">
@@ -564,6 +589,7 @@ export async function handle(
     invitee: details.invitee,
     role: details.role,
     appUrl: cfg.APP_URL!,
+    listId: details.list_id,
     message: details.message,
     icon: look.icon,
     color: look.color,

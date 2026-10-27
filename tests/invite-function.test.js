@@ -643,3 +643,59 @@ describe("send-invite: what the email shows about the list", () => {
     expect(calls.some((c) => c.url.includes("/rest/v1/l"))).toBe(false);
   });
 });
+
+describe("the direct link to the list", () => {
+  const base = {
+    inviter: "Aditya",
+    listTitle: "Groceries",
+    invitee: "pal@example.com",
+    role: "viewer",
+    appUrl: "https://ordly-lists.vercel.app/",
+  };
+
+  it("the button opens the list itself, and the plain link and text do too", () => {
+    const m = buildInviteEmail({ ...base, listId: LIST_ID });
+    const url = `https://ordly-lists.vercel.app/app/${LIST_ID}`;
+    expect(m.html.match(new RegExp(url, "g")).length).toBeGreaterThanOrEqual(2);
+    expect(m.html).not.toContain("/login");
+    expect(m.html).toContain("Open the list");
+    expect(m.html).toContain("straight to it");
+    expect(m.text).toContain(url);
+    expect(m.text).not.toContain("/login");
+  });
+
+  it("falls back to the login page without a proper list id", () => {
+    for (const listId of [
+      undefined,
+      null,
+      "",
+      "not-a-uuid",
+      `${LIST_ID}/../x`,
+    ]) {
+      const m = buildInviteEmail({ ...base, listId });
+      expect(m.html).toContain("https://ordly-lists.vercel.app/login");
+      expect(m.html).not.toContain("/app/");
+      expect(m.html).toContain("Open Ordly");
+    }
+  });
+
+  it("the button has a hover colour, lighter in dark mode", () => {
+    const m = buildInviteEmail({ ...base, color: "#6db6f1" });
+    expect(m.html).toContain('class="btn"');
+    expect(m.html).toMatch(/a\.btn:hover\{background:#[0-9a-f]{6}!important/);
+    expect((m.html.match(/a\.btn:hover/g) || []).length).toBe(2);
+  });
+
+  it("the sent email carries the list's address", async () => {
+    const w = world({
+      begin: () => json(200, { ...DETAILS, list_id: LIST_ID }),
+    });
+    const { res, calls } = await run(request(), w);
+    expect(res.status).toBe(200);
+    const mail = calls.find(
+      (c) => c.url === "https://api.resend.com/emails",
+    ).body;
+    expect(mail.html).toContain(`/app/${LIST_ID}`);
+    expect(mail.text).toContain(`/app/${LIST_ID}`);
+  });
+});

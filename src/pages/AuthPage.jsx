@@ -9,6 +9,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Field";
 import { Splash } from "./NotFound";
 import { playAuthIntro } from "../lib/animations";
+import { savePendingNext } from "../utils/pendingNext";
 
 // Only allow in-app redirects (blocks open-redirect via ?next=https://evil.example).
 export const safeNext = (n) =>
@@ -133,7 +134,11 @@ export default function AuthPage({ initialMode = "signin" }) {
           password: form.password,
           name: form.name.trim(),
         });
-        if (res.needsConfirmation) setDone({ kind: "confirm", email });
+        if (res.needsConfirmation) {
+          // the confirmation link opens /app: remember where this person was headed
+          if (next) savePendingNext(next);
+          setDone({ kind: "confirm", email });
+        }
       } else {
         await api.sendPasswordReset(email);
         setDone({ kind: "reset", email });
