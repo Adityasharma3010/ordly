@@ -20,7 +20,12 @@ describe("remembering where an invited person was headed", () => {
     expect(takePendingNext()).toBeNull();
   });
 
-  it("only ever remembers a list inside the app", () => {
+  it("also remembers a shared link", () => {
+    savePendingNext("/s/AbC123_-xyz987");
+    expect(takePendingNext()).toBe("/s/AbC123_-xyz987");
+  });
+
+  it("only ever remembers a list inside the app, or a shared link", () => {
     for (const bad of [
       "https://evil.example",
       "//evil.example",
@@ -28,6 +33,10 @@ describe("remembering where an invited person was headed", () => {
       "/app",
       "/app/../x",
       "/app/not-a-uuid",
+      "/s/",
+      "/s/ab",
+      "/s/abc123/../x",
+      "/s/abcdef?x=1",
       `/app/${ID}?x=1`,
       null,
       undefined,

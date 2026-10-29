@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
-import { Link2, MailCheck, ShieldCheck, Sparkles } from "lucide-react";
+import { Link2, Mail, MailCheck, ShieldCheck, Sparkles } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { Logo } from "../components/ui/Logo";
@@ -81,8 +81,55 @@ function Preview() {
   );
 }
 
+function GoogleLogo() {
+  return (
+    <svg viewBox="0 0 48 48" className="size-[18px]" aria-hidden>
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
+// "or" between the main button and the other ways in.
+function OrDivider() {
+  return (
+    <div
+      className="my-5 flex items-center gap-3 text-xs text-faint"
+      aria-hidden
+    >
+      <span className="h-px flex-1 bg-line" />
+      or
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
+}
+
 const friendly = (msg = "") => {
   if (/invalid login/i.test(msg)) return "That email and password don’t match.";
+  if (
+    /token has expired|invalid.*(token|otp|code)|otp.*(expired|invalid)/i.test(
+      msg,
+    )
+  )
+    return "That code is wrong or has expired. Check it, or ask for a new one.";
+  if (/only request this after|after \d+ seconds/i.test(msg))
+    return "Please wait a minute before asking for another code.";
+  if (/provider.*not enabled|unsupported provider/i.test(msg))
+    return "Google sign-in isn’t switched on yet.";
   if (/already registered|already been registered/i.test(msg))
     return "An account with this email already exists. Try signing in.";
   if (/rate limit|too many/i.test(msg))
@@ -93,13 +140,20 @@ const friendly = (msg = "") => {
 };
 
 export default function AuthPage({ initialMode = "signin" }) {
-  const { user, status, signIn, signUp, sessionExpired } = useAuth();
+  const { user, status, signIn, signUp, verifyCode, sessionExpired } =
+    useAuth();
   const [params] = useSearchParams();
   const [mode, setMode] = useState(initialMode); // signin | signup | forgot
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // { kind: 'confirm' | 'reset', email }
+  // Signing in goes one step at a time, like Google: email → (password | emailed code).
+  const [step, setStep] = useState("email"); // email | method | code
+  const [code, setCode] = useState("");
+  const [info, setInfo] = useState("");
+  const [cooldown, setCooldown] = useState(0); // seconds until another code may be sent
+  const [googleOn, setGoogleOn] = useState(false);
   const next = safeNext(params.get("next"));
   const rootRef = useRef(null);
   const showing = status === "ready" && !user && api.capabilities.auth;
@@ -107,6 +161,21 @@ export default function AuthPage({ initialMode = "signin" }) {
     () => (showing ? playAuthIntro(rootRef.current) : undefined),
     [showing],
   );
+
+  // Show "Continue with Google" only when it is switched on in the project.
+  useEffect(() => {
+    let alive = true;
+    if (api.capabilities.auth && api.authProviders)
+      api.authProviders().then((p) => alive && setGoogleOn(!!p?.google));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   if (!api.capabilities.auth) return <Navigate to="/app" replace />;
   if (status === "loading") return <Splash />;
@@ -117,17 +186,61 @@ export default function AuthPage({ initialMode = "signin" }) {
     setError("");
   };
 
-  const submit = async (e) => {
-    e.preventDefault();
-    const email = form.email.trim();
-    if (!/^\S+@\S+\.\S+$/.test(email))
-      return setError("Enter a valid email address.");
-    if (mode !== "forgot" && form.password.length < 8)
-      return setError("Use at least 8 characters for your password.");
+  const goStep = (st) => {
+    setStep(st);
+    setError("");
+    setInfo("");
+  };
+  const askForCode = async (resend = false) => {
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await api.sendEmailCode(form.email.trim());
+      setCooldown(60);
+      if (resend) setInfo("A new code is on its way.");
+      else {
+        setCode("");
+        setStep("code");
+      }
+    } catch (err) {
+      setError(friendly(err.message));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const google = async () => {
     setBusy(true);
     setError("");
     try {
-      if (mode === "signin") await signIn({ email, password: form.password });
+      // Google brings the person back to /app, so remember where they were headed.
+      if (next) savePendingNext(next);
+      await api.signInWithGoogle();
+    } catch (err) {
+      setError(friendly(err.message));
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const email = form.email.trim();
+    const asking = mode === "signin" && step === "code";
+    const needsPassword =
+      mode === "signup" || (mode === "signin" && step === "method");
+    if (!asking && !/^\S+@\S+\.\S+$/.test(email))
+      return setError("Enter a valid email address.");
+    if (mode === "signin" && step === "email") return goStep("method");
+    if (needsPassword && form.password.length < 8)
+      return setError("Use at least 8 characters for your password.");
+    if (asking && !/^\d{6,10}$/.test(code))
+      return setError("Enter the code from your email (digits only).");
+    setBusy(true);
+    setError("");
+    try {
+      if (asking) await verifyCode({ email, token: code });
+      else if (mode === "signin")
+        await signIn({ email, password: form.password });
       else if (mode === "signup") {
         const res = await signUp({
           email,
@@ -152,14 +265,28 @@ export default function AuthPage({ initialMode = "signin" }) {
 
   const switchTo = (m) => {
     setMode(m);
+    setStep("email");
+    setCode("");
     setError("");
+    setInfo("");
     setDone(null);
   };
-  const copy = {
-    signin: ["Welcome back", "Sign in"],
-    signup: ["Create your account", "Create account"],
-    forgot: ["Reset your password", "Send reset link"],
-  }[mode];
+  const copy =
+    mode === "signin"
+      ? {
+          email: ["Welcome back", "Continue"],
+          method: ["Enter your password", "Sign in"],
+          code: ["Check your email", "Verify code"],
+        }[step]
+      : {
+          signup: ["Create your account", "Create account"],
+          forgot: ["Reset your password", "Send reset link"],
+        }[mode];
+  const intro = {
+    forgot: "Enter your email and we’ll send you a link.",
+    method: "Sign in with your password, or get a code by email.",
+    code: `We sent a code to ${form.email.trim()}. It only works for a short while.`,
+  }[mode === "signin" ? step : mode];
 
   return (
     <div ref={rootRef} className="grid min-h-dvh lg:grid-cols-[1.1fr_1fr]">
@@ -261,7 +388,7 @@ export default function AuthPage({ initialMode = "signin" }) {
               </motion.div>
             ) : (
               <motion.form
-                key={mode}
+                key={`${mode}-${mode === "signin" ? step : ""}`}
                 onSubmit={submit}
                 noValidate
                 initial={{ opacity: 0, y: 8 }}
@@ -271,11 +398,12 @@ export default function AuthPage({ initialMode = "signin" }) {
               >
                 <h2 className="font-serif text-4xl">{copy[0]}</h2>
                 <p className="mt-1.5 mb-7 text-sm text-muted">
-                  {mode === "forgot"
-                    ? "Enter your email and we’ll send you a link."
-                    : next?.startsWith("/s/")
+                  {intro ||
+                    (next?.startsWith("/s/")
                       ? "Sign in to open the list that was shared with you."
-                      : "Your lists, saved and synced."}
+                      : next?.startsWith("/app/")
+                        ? "Sign in to open the list you were invited to."
+                        : "Your lists, saved and synced.")}
                 </p>
                 <div className="space-y-4">
                   {mode === "signup" && (
@@ -287,15 +415,32 @@ export default function AuthPage({ initialMode = "signin" }) {
                       placeholder="What should we call you?"
                     />
                   )}
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={form.email}
-                    onChange={set("email")}
-                    autoComplete="email"
-                    autoFocus
-                  />
-                  {mode !== "forgot" && (
+                  {(mode !== "signin" || step === "email") && (
+                    <Input
+                      label="Email"
+                      type="email"
+                      value={form.email}
+                      onChange={set("email")}
+                      autoComplete="email"
+                      autoFocus
+                    />
+                  )}
+                  {mode === "signin" && step !== "email" && (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-line bg-raised px-3 py-2 text-sm">
+                      <span className="min-w-0 truncate">
+                        {form.email.trim()}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 cursor-pointer text-[13px] text-accent hover:underline"
+                        onClick={() => goStep("email")}
+                      >
+                        Change
+                      </button>
+                    </div>
+                  )}
+                  {(mode === "signup" ||
+                    (mode === "signin" && step === "method")) && (
                     <Input
                       label="Password"
                       type="password"
@@ -304,12 +449,34 @@ export default function AuthPage({ initialMode = "signin" }) {
                       autoComplete={
                         mode === "signup" ? "new-password" : "current-password"
                       }
+                      autoFocus={mode === "signin"}
                       hint={
                         mode === "signup" ? "At least 8 characters." : undefined
                       }
                     />
                   )}
+                  {mode === "signin" && step === "code" && (
+                    <Input
+                      label="Sign-in code"
+                      value={code}
+                      onChange={(e) => {
+                        setCode(e.target.value.replace(/\D/g, ""));
+                        setError("");
+                        setInfo("");
+                      }}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={10}
+                      placeholder="123456"
+                      autoFocus
+                    />
+                  )}
                 </div>
+                {info && (
+                  <p role="status" className="mt-4 text-[13px] text-muted">
+                    {info}
+                  </p>
+                )}
                 {error && (
                   <p
                     role="alert"
@@ -327,22 +494,75 @@ export default function AuthPage({ initialMode = "signin" }) {
                 >
                   {copy[1]}
                 </Button>
-                <div className="mt-5 flex items-center justify-between text-[13px] text-muted">
-                  {mode === "signin" && (
+                {mode === "signin" && step === "method" && (
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="mt-3 w-full"
+                    disabled={busy}
+                    onClick={() => askForCode(false)}
+                  >
+                    <Mail className="size-4" aria-hidden />
+                    Email me a sign-in code
+                  </Button>
+                )}
+                {googleOn &&
+                  (mode === "signup" ||
+                    (mode === "signin" && step === "email")) && (
                     <>
-                      <button
+                      <OrDivider />
+                      <Button
                         type="button"
-                        className="cursor-pointer hover:text-fg"
-                        onClick={() => switchTo("forgot")}
+                        size="lg"
+                        className="w-full"
+                        disabled={busy}
+                        onClick={google}
                       >
-                        Forgot password?
-                      </button>
+                        <GoogleLogo />
+                        Continue with Google
+                      </Button>
+                    </>
+                  )}
+                <div className="mt-5 flex items-center justify-between gap-3 text-[13px] text-muted">
+                  {mode === "signin" && step === "email" && (
+                    <>
+                      <span />
                       <button
                         type="button"
                         className="cursor-pointer text-accent hover:underline"
                         onClick={() => switchTo("signup")}
                       >
                         Create an account
+                      </button>
+                    </>
+                  )}
+                  {mode === "signin" && step === "method" && (
+                    <button
+                      type="button"
+                      className="cursor-pointer hover:text-fg"
+                      onClick={() => switchTo("forgot")}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                  {mode === "signin" && step === "code" && (
+                    <>
+                      <button
+                        type="button"
+                        className="cursor-pointer hover:text-fg disabled:cursor-default disabled:opacity-60"
+                        disabled={cooldown > 0 || busy}
+                        onClick={() => askForCode(true)}
+                      >
+                        {cooldown > 0
+                          ? `Resend in ${cooldown}s`
+                          : "Resend code"}
+                      </button>
+                      <button
+                        type="button"
+                        className="cursor-pointer text-accent hover:underline"
+                        onClick={() => goStep("method")}
+                      >
+                        Use my password
                       </button>
                     </>
                   )}
@@ -366,6 +586,12 @@ export default function AuthPage({ initialMode = "signin" }) {
                     </button>
                   )}
                 </div>
+                {mode === "signin" && step === "method" && (
+                  <p className="mt-4 text-xs text-faint">
+                    New to Ordly? A code works for that too. It creates your
+                    account.
+                  </p>
+                )}
               </motion.form>
             )}
           </AnimatePresence>

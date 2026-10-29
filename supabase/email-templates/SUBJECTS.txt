@@ -1,0 +1,4 @@
+confirm-signup.html  →  Confirm your Ordly account
+magic-link-code.html  →  Your Ordly sign-in code: {{ .Token }}
+reset-password.html  →  Reset your Ordly password
+change-email.html  →  Confirm your new email for Ordly

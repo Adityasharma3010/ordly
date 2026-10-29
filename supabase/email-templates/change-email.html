@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Confirm your new email for Ordly</title>
+<style>
+  a.btn:hover{background:#ce9942!important}
+  @media (max-width:560px){ .px{padding-left:20px!important;padding-right:20px!important} .h1{font-size:25px!important} }
+  @media (prefers-color-scheme:dark){
+    .page{background:#0e0f12!important} .card{background:#17181c!important;border-color:#2a2c33!important}
+    .ink{color:#f2f3f5!important} .muted{color:#a4a8b3!important} .faint{color:#7d8290!important}
+    .rule{border-color:#2a2c33!important} .lnk{color:#f3c26d!important}
+    .codebox{background:#211d12!important;border-color:#3a2f14!important}
+    .ghost{border-color:#3a3d46!important} .ghostbtn{color:#f2f3f5!important}
+    a.btn:hover{background:#f3c26d!important}
+  }
+</style></head>
+<body class="page" style="margin:0;padding:0;background:#f4f5f7">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px">Confirm the change to {{ .NewEmail }}.&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="page" style="background:#f4f5f7"><tr><td align="center" style="padding:28px 14px">
+  <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" class="card" style="width:100%;max-width:520px;background:#ffffff;border:1px solid #e7e9ee;border-radius:16px">
+    <tr><td class="px" style="padding:26px 32px 0">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td valign="middle" style="padding-right:10px"><img src="{{ .SiteURL }}/email-logo.gif" width="32" height="32" alt="" style="display:block;width:32px;height:32px;border:0;border-radius:9px"></td>
+        <td valign="middle"><span class="ink" style="font:22px/1 Georgia,'Times New Roman',serif;color:#1b1f27;letter-spacing:-.01em">Ordly</span></td>
+      </tr></table>
+    </td></tr>
+    <tr><td class="px" style="padding:28px 32px 0">
+      <h1 class="h1 ink" style="margin:0 0 12px;font:400 30px/1.2 Georgia,'Times New Roman',serif;color:#1b1f27;letter-spacing:-.01em">Confirm your new email</h1>
+      <div class="muted" style="font:15px/1.6 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#4b5563">You asked to change the email on your Ordly account from <b class="ink" style="color:#1b1f27">{{ .Email }}</b> to <b class="ink" style="color:#1b1f27">{{ .NewEmail }}</b>. Confirm it to finish the change.</div>
+    </td></tr>
+    <tr><td class="px" style="padding:24px 32px 0"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-radius:10px;background:#f0b24b"><a class="btn" href="{{ .ConfirmationURL }}" style="display:inline-block;background:#f0b24b;color:#17130a;text-decoration:none;font:600 15px/1 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;padding:14px 24px;border-radius:10px;transition:background-color .15s ease">Confirm new email</a></td></tr></table></td></tr>
+    <tr><td class="px" style="padding:22px 32px 0">
+      <p class="faint" style="margin:0;font:12px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280;word-break:break-all">Button not working? Copy this link into your browser:<br><a class="lnk" href="{{ .ConfirmationURL }}" style="color:#84621a">{{ .ConfirmationURL }}</a></p>
+    </td></tr>
+    <tr><td class="px" style="padding:26px 32px 26px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="rule" style="border-top:1px solid #e7e9ee;padding-top:16px">
+        <p class="faint" style="margin:0 0 6px;font:12px/1.5 -apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#6b7280">If you didn’t ask for this, you can ignore this email. Your email stays the same.</p>
+        <p class="faint" style="margin:0;font:12px/1.5 Georgia,'Times New Roman',serif;color:#8a8f9c;font-style:italic">Ordly. Lists that stay put.</p>
+      </td></tr></table>
+    </td></tr>
+  </table>
+</td></tr></table>
+</body></html>

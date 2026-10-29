@@ -1,12 +1,15 @@
-// Someone who signs up from an invite email has to confirm their address first, and the
-// confirmation link opens the app at /app, not at the list. So when they sign up we remember
+// Someone who signs up from an invite email has to confirm their address first (or signs in
+// with Google, which comes back to /app), and either way they open the app at /app, not at the
+// list. So when they sign up we remember
 // which list they were headed to (in this browser, for a couple of days) and take them there
 // the first time they land on /app.
 const KEY = "ordly.next";
 const MAX_AGE = 2 * 24 * 60 * 60 * 1000;
 
-// Only a list inside the app can be remembered, never an outside address.
-const ok = (p) => typeof p === "string" && /^\/app\/[0-9a-f-]{36}$/i.test(p);
+// Only a list inside the app, or a shared link, can be remembered; never an outside address.
+const ok = (p) =>
+  typeof p === "string" &&
+  (/^\/app\/[0-9a-f-]{36}$/i.test(p) || /^\/s\/[\w-]{6,200}$/.test(p));
 
 export function savePendingNext(path, now = Date.now()) {
   if (!ok(path)) return;

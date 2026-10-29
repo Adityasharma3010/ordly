@@ -57,6 +57,12 @@ export function AuthProvider({ children }) {
     setSessionExpired(false);
     return u;
   }, []);
+  const verifyCode = useCallback(async (data) => {
+    const u = await api.verifyEmailCode(data);
+    setUser(u);
+    setSessionExpired(false);
+    return u;
+  }, []);
   const signUp = useCallback(async (data) => {
     const res = await api.signUp(data);
     if (!res.needsConfirmation) setUser(res.user);
@@ -83,6 +89,7 @@ export function AuthProvider({ children }) {
       setRecovering,
       sessionExpired,
       signIn,
+      verifyCode,
       signUp,
       signOut,
       renameUser,
@@ -93,6 +100,7 @@ export function AuthProvider({ children }) {
       recovering,
       sessionExpired,
       signIn,
+      verifyCode,
       signUp,
       signOut,
       renameUser,

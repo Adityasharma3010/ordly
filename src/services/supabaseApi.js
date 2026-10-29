@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "../lib/config";
 
 const fail = (error, fallback) => {
   if (!error) return;
@@ -60,6 +61,50 @@ export const supabaseApi = {
     });
     fail(error);
     return toUser(data.user);
+  },
+  // Sign in with a code emailed to the person (no password). A new address gets an account.
+  // What arrives is decided by the "Magic link" email template in the Supabase dashboard.
+  async sendEmailCode(email) {
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: true },
+    });
+    fail(error);
+  },
+  async verifyEmailCode({ email, token }) {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: token.trim(),
+      type: "email",
+    });
+    fail(error);
+    return toUser(data.user);
+  },
+  // Leaves the app for Google and comes back to /app signed in.
+  async signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + "/app" },
+    });
+    fail(error);
+  },
+  // Which sign-in providers are switched on in the project, so a button only shows when it
+  // would work. This is a public endpoint that needs only the anon key; any failure just means
+  // "none".
+  async authProviders() {
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/settings`,
+        {
+          headers: { apikey: SUPABASE_ANON_KEY },
+        },
+      );
+      if (!res.ok) return { google: false };
+      const json = await res.json();
+      return { google: json?.external?.google === true };
+    } catch {
+      return { google: false };
+    }
   },
   async signOut() {
     const { error } = await supabase.auth.signOut();
